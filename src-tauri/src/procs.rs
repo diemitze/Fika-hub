@@ -1,6 +1,6 @@
+use crate::history::record;
 use crate::install::{self, norm};
 use crate::logs::{GAME, HEADLESS, SERVER};
-use crate::history::record;
 use crate::Core;
 use serde::Serialize;
 use serde_json::json;
@@ -105,8 +105,13 @@ fn close_game(slot: &Mutex<Option<Child>>) {
         slot.lock().unwrap().take();
         return;
     }
-    let Some(pid) = slot.lock().unwrap().as_ref().map(|c| c.id()) else { return };
-    let _ = Command::new("taskkill").args(["/PID", &pid.to_string()]).creation_flags(NO_WINDOW).status();
+    let Some(pid) = slot.lock().unwrap().as_ref().map(|c| c.id()) else {
+        return;
+    };
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string()])
+        .creation_flags(NO_WINDOW)
+        .status();
     let until = Instant::now() + Duration::from_secs(6);
     while Instant::now() < until {
         if !child_alive(slot) {
@@ -118,7 +123,11 @@ fn close_game(slot: &Mutex<Option<Child>>) {
 }
 
 fn exit_code(slot: &Mutex<Option<Child>>) -> Option<i32> {
-    slot.lock().unwrap().take().and_then(|mut c| c.try_wait().ok().flatten()).and_then(|s| s.code())
+    slot.lock()
+        .unwrap()
+        .take()
+        .and_then(|mut c| c.try_wait().ok().flatten())
+        .and_then(|s| s.code())
 }
 
 pub fn stop_all(core: &Core, why: &str) {
@@ -139,7 +148,10 @@ fn boot_file() -> PathBuf {
 }
 
 fn boot_times() -> Vec<u64> {
-    std::fs::read_to_string(boot_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    std::fs::read_to_string(boot_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 fn record_boot(secs: u64) {
@@ -196,7 +208,13 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("Couldn't start SPT.Server.exe: {e}"))?;
 
-    for pipe in [child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>), child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>)].into_iter().flatten() {
+    for pipe in [
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
         let c = core.clone();
         std::thread::spawn(move || {
             let mut r = std::io::BufReader::new(pipe);
@@ -245,7 +263,11 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
 
 fn spawn_eft(dir: &Path, args: &str, hidden: bool) -> Result<Child, String> {
     let mut cmd = Command::new(dir.join("EscapeFromTarkov.exe"));
-    cmd.current_dir(dir).raw_arg(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.current_dir(dir)
+        .raw_arg(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     if hidden {
         cmd.creation_flags(NO_WINDOW);
     }
@@ -313,7 +335,15 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
             return;
         }
-        note(&core, HEADLESS, if forced { "Restarting headless..." } else { "Headless exited, restarting in 3s." });
+        note(
+            &core,
+            HEADLESS,
+            if forced {
+                "Restarting headless..."
+            } else {
+                "Headless exited, restarting in 3s."
+            },
+        );
         // EFT holds a single-instance mutex for a moment after exit
         std::thread::sleep(Duration::from_secs(3));
         if !forced {
@@ -338,7 +368,13 @@ pub fn start_headless(core: &Arc<Core>) -> Result<(), String> {
     if core.stack.supervising.load(SeqCst) {
         return Err("The headless is already running.".into());
     }
-    let (host, token, port) = core.stack.headless_plan.lock().unwrap().clone().ok_or("No headless profile on the host.")?;
+    let (host, token, port) = core
+        .stack
+        .headless_plan
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("No headless profile on the host.")?;
     note(core, HEADLESS, "Starting headless...");
     supervise_headless(core.clone(), core.stack.gen.load(SeqCst), host, token, port);
     Ok(())
@@ -352,12 +388,18 @@ pub fn apply_display_mode(player: &Path, mode: &str) {
         "Fullscreen" => (0, 0),
         _ => return,
     };
-    if let Ok((key, _)) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).create_subkey(r"Software\Battlestate Games\EscapeFromTarkov") {
+    if let Ok((key, _)) =
+        winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER).create_subkey(r"Software\Battlestate Games\EscapeFromTarkov")
+    {
         let _ = key.set_value("Screenmanager Fullscreen mode_h3630240806", &unity);
     }
-    let Some(path) = install::spt_root(player).map(|r| r.join("user").join("sptSettings").join("Graphics.ini")) else { return };
+    let Some(path) = install::spt_root(player).map(|r| r.join("user").join("sptSettings").join("Graphics.ini")) else {
+        return;
+    };
     let Ok(text) = std::fs::read_to_string(&path) else { return };
-    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+    let Ok(mut root) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
     if let Some(v) = root.pointer_mut("/DisplaySettings/FullScreenMode") {
         *v = ini.into();
         let mut perms = match std::fs::metadata(&path) {
@@ -414,6 +456,7 @@ pub struct LaunchPlan {
     pub mode: String,
     pub host: Option<PathBuf>,
     pub player: Option<PathBuf>,
+    pub headless: Option<PathBuf>,
     pub profile: Option<String>,
     pub headless_id: Option<String>,
     pub port: u16,
@@ -458,9 +501,14 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
                 }
             }
             set_stage(&core, "Starting headless", 65);
-            match plan.headless_id.clone() {
-                Some(id) => supervise_headless(core.clone(), my, host, id, plan.port),
-                None => note(&core, HEADLESS, "No headless profile found on the host, skipping headless."),
+            match (plan.headless.clone(), plan.headless_id.clone()) {
+                (Some(dir), Some(id)) => supervise_headless(core.clone(), my, dir, id, plan.port),
+                (None, _) => note(
+                    &core,
+                    HEADLESS,
+                    "No Fika headless install found, skipping headless. Set its folder in Settings.",
+                ),
+                (_, None) => note(&core, HEADLESS, "No headless profile found on the server, skipping headless."),
             }
         } else {
             set_stage(&core, "Waiting for server", 35);
@@ -474,7 +522,13 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
 
         if wants_game && alive(&core, my) {
             set_stage(&core, "Launching game", 85);
-            if let Err(e) = start_game(&core, my, plan.player.as_ref().unwrap(), plan.profile.as_deref().unwrap_or(""), &plan.addr) {
+            if let Err(e) = start_game(
+                &core,
+                my,
+                plan.player.as_ref().unwrap(),
+                plan.profile.as_deref().unwrap_or(""),
+                &plan.addr,
+            ) {
                 return fail(&e);
             }
         }
@@ -566,9 +620,13 @@ fn restart_server_inner(core: &Arc<Core>, by: &str) -> Result<(), String> {
 }
 
 pub fn status(core: &Core) -> Status {
-    let (host, player) = {
+    let (host, player, headless) = {
         let s = core.settings.lock().unwrap();
-        (crate::host_dir(&s), s.player_dir.clone().map(PathBuf::from))
+        (
+            crate::host_dir(&s),
+            s.player_dir.clone().map(PathBuf::from),
+            crate::headless_dir(&s),
+        )
     };
     let port = host.as_deref().map(install::server_port).unwrap_or(6969);
 
@@ -583,7 +641,7 @@ pub fn status(core: &Core) -> Status {
     let own_game = own(&core.stack.game);
 
     let server_exe = host.as_deref().and_then(install::spt_root).map(|r| norm(&r.join("SPT.Server.exe")));
-    let headless_exe = host.as_deref().map(|h| norm(&h.join("EscapeFromTarkov.exe")));
+    let headless_exe = headless.as_deref().map(|h| norm(&h.join("EscapeFromTarkov.exe")));
     let game_exe = player.as_deref().map(|p| norm(&p.join("EscapeFromTarkov.exe")));
 
     let mut guard = core.stack.sys.lock().unwrap();
@@ -591,7 +649,10 @@ pub fn status(core: &Core) -> Status {
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
-        ProcessRefreshKind::nothing().with_cpu().with_memory().with_exe(UpdateKind::OnlyIfNotSet),
+        ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_exe(UpdateKind::OnlyIfNotSet),
     );
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
 
@@ -599,7 +660,9 @@ pub fn status(core: &Core) -> Status {
         let proc_ = match owned {
             Some(pid) => sys.process(sysinfo::Pid::from_u32(pid)),
             None => exe.as_ref().and_then(|want| {
-                sys.processes().values().find(|p| p.exe().map(|e| &norm(e) == want).unwrap_or(false))
+                sys.processes()
+                    .values()
+                    .find(|p| p.exe().map(|e| &norm(e) == want).unwrap_or(false))
             }),
         };
         match proc_ {
@@ -611,7 +674,12 @@ pub fn status(core: &Core) -> Status {
                 ram: p.memory(),
                 uptime: p.run_time(),
             },
-            None if owned.is_some() => ProcInfo { running: true, owned: true, pid: owned.unwrap(), ..Default::default() },
+            None if owned.is_some() => ProcInfo {
+                running: true,
+                owned: true,
+                pid: owned.unwrap(),
+                ..Default::default()
+            },
             None => ProcInfo::default(),
         }
     };

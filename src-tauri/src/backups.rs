@@ -54,13 +54,24 @@ static ENTRY_CACHE: Mutex<Option<HashMap<(PathBuf, u64, u64), Option<Entry>>>> =
 
 fn entry_of(f: &Path) -> Option<Entry> {
     let meta = f.metadata().ok()?;
-    let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let key = (f.to_path_buf(), meta.len(), mtime);
     if let Some(hit) = ENTRY_CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
         return hit.clone();
     }
     // activeMods.json and friends have no "info", so they drop out here
-    let e = crate::profiles::read(f).map(|p| Entry { id: p.id, nickname: p.nickname, level: p.level, size: meta.len(), headless: p.headless });
+    let e = crate::profiles::read(f).map(|p| Entry {
+        id: p.id,
+        nickname: p.nickname,
+        level: p.level,
+        size: meta.len(),
+        headless: p.headless,
+    });
     ENTRY_CACHE.lock().unwrap().get_or_insert_with(HashMap::new).insert(key, e.clone());
     e
 }
@@ -104,7 +115,13 @@ fn spt_list(host: &Path) -> Vec<Backup> {
             let name = e.file_name().to_string_lossy().to_string();
             let created = parse_spt_stamp(&name)?;
             let profiles: Vec<Entry> = profile_files(&e.path()).iter().filter_map(|f| entry_of(f)).collect();
-            (!profiles.is_empty()).then(|| Backup { id: name, created, reason: "spt".into(), profiles, source: "spt".into() })
+            (!profiles.is_empty()).then(|| Backup {
+                id: name,
+                created,
+                reason: "spt".into(),
+                profiles,
+                source: "spt".into(),
+            })
         })
         .collect()
 }
@@ -120,7 +137,9 @@ pub fn list_all(host: Option<&Path>) -> Vec<Backup> {
 }
 
 fn same_as_latest(files: &[PathBuf]) -> bool {
-    let Some(latest) = own_list().into_iter().next() else { return false };
+    let Some(latest) = own_list().into_iter().next() else {
+        return false;
+    };
     let d = dir().join(&latest.id);
     files.len() == latest.profiles.len()
         && files.iter().all(|f| {
@@ -155,7 +174,13 @@ pub fn create(host: &Path, reason: &str, keep: usize) -> Result<Option<Backup>, 
             headless: p.as_ref().is_some_and(|p| p.headless),
         });
     }
-    let b = Backup { id, created, reason: reason.into(), profiles, source: "app".into() };
+    let b = Backup {
+        id,
+        created,
+        reason: reason.into(),
+        profiles,
+        source: "app".into(),
+    };
     std::fs::write(d.join("backup.json"), serde_json::to_string_pretty(&b).unwrap_or_default()).map_err(|e| e.to_string())?;
     prune(keep);
     Ok(Some(b))

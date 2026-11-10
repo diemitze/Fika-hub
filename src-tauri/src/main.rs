@@ -45,7 +45,23 @@ pub fn host_dir(s: &Settings) -> Option<PathBuf> {
     if let Some(d) = exe_dir().filter(|d| install::host_problem(d).is_none()) {
         return Some(d);
     }
-    s.host_dir.as_ref().map(PathBuf::from).filter(|d| install::host_problem(d).is_none())
+    s.host_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(|d| install::host_problem(d).is_none())
+}
+
+/// A separate headless folder wins, then the server install, then wherever the launcher sits.
+pub fn headless_dir(s: &Settings) -> Option<PathBuf> {
+    // never the game folder, or "start headless" opens the player's own client
+    let game = s.player_dir.as_deref().map(|p| install::norm(Path::new(p)));
+    let ok = |d: &PathBuf| install::headless_problem(d).is_none() && Some(install::norm(d)) != game;
+    s.headless_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(ok)
+        .or_else(|| host_dir(s).filter(ok))
+        .or_else(|| exe_dir().filter(ok))
 }
 
 /// Where the game connects. A saved address only applies to game-only mode, since
@@ -56,7 +72,10 @@ pub fn game_addr(s: &Settings, mode: &str) -> String {
     if mode != "join" || saved.is_empty() {
         return format!("127.0.0.1:{port}");
     }
-    let saved = saved.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/');
+    let saved = saved
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
     if saved.rsplit_once(':').is_some_and(|(_, p)| p.parse::<u16>().is_ok()) {
         saved.to_string()
     } else {
@@ -81,6 +100,10 @@ struct Boot {
     host_problem: Option<String>,
     player_dir: Option<String>,
     player_problem: Option<String>,
+    /// resolved folder, which may just be the server install
+    headless_dir: Option<String>,
+    headless_separate: bool,
+    headless_problem: Option<String>,
     settings: Settings,
     versions: Versions,
     app_version: String,
@@ -93,15 +116,21 @@ fn boot_info(core: &Core) -> Boot {
     let host_problem = match (&host, &s.host_dir) {
         (Some(_), _) => None,
         (None, Some(d)) => install::host_problem(Path::new(d)),
-        (None, None) => Some("Pick the install that runs the server and headless.".into()),
+        (None, None) => Some("Pick the install that runs the SPT server.".into()),
     };
     let player = s.player_dir.as_ref().map(PathBuf::from);
     let player_problem = player.as_deref().and_then(install::player_problem);
+    let headless = headless_dir(&s);
+    let headless_problem = match (&headless, &s.headless_dir) {
+        (Some(_), _) => None,
+        (None, Some(d)) => install::headless_problem(Path::new(d)),
+        (None, None) => Some("No Fika headless found. Pick its folder if it lives apart from the server.".into()),
+    };
     Boot {
         versions: Versions {
             spt_host: host.as_deref().and_then(install::spt_version),
             spt_player: player.as_deref().and_then(install::spt_version),
-            fika_host: host.as_deref().and_then(install::fika_version),
+            fika_host: headless.as_deref().or(host.as_deref()).and_then(install::fika_version),
             fika_player: player.as_deref().and_then(install::fika_version),
         },
         host_dir: host.map(|h| h.to_string_lossy().into()),
@@ -109,6 +138,9 @@ fn boot_info(core: &Core) -> Boot {
         host_problem,
         player_dir: s.player_dir.clone(),
         player_problem,
+        headless_separate: s.headless_dir.is_some(),
+        headless_dir: headless.map(|h| h.to_string_lossy().into()),
+        headless_problem,
         settings: s,
         app_version: env!("CARGO_PKG_VERSION").into(),
     }
@@ -122,16 +154,22 @@ fn boot(core: Ctx) -> Boot {
 #[tauri::command]
 fn set_dir(core: Ctx, kind: String, path: String) -> Result<Boot, String> {
     let p = PathBuf::from(&path);
-    let problem = if kind == "host" { install::host_problem(&p) } else { install::player_problem(&p) };
+    let problem = match kind.as_str() {
+        "host" => install::host_problem(&p),
+        "headless" if path.is_empty() => None,
+        "headless" => install::headless_problem(&p),
+        _ => install::player_problem(&p),
+    };
     if let Some(e) = problem {
         return Err(e);
     }
     {
         let mut s = core.settings.lock().unwrap();
-        if kind == "host" {
-            s.host_dir = Some(path);
-        } else {
-            s.player_dir = Some(path);
+        match kind.as_str() {
+            "host" => s.host_dir = Some(path),
+            // empty means "same as the server install"
+            "headless" => s.headless_dir = Some(path).filter(|p| !p.is_empty()),
+            _ => s.player_dir = Some(path),
         }
         s.save();
     }
@@ -140,17 +178,23 @@ fn set_dir(core: Ctx, kind: String, path: String) -> Result<Boot, String> {
 
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file().blocking_pick_folder().and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().into()))
+    Ok(app
+        .dialog()
+        .file()
+        .blocking_pick_folder()
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().into()))
 }
 
 #[tauri::command]
 fn save_settings(core: Ctx, settings: Settings) {
     let mut s = core.settings.lock().unwrap();
     // folders only change through set_dir, which validates them
-    let (h, p) = (s.host_dir.clone(), s.player_dir.clone());
+    let (h, p, hl) = (s.host_dir.clone(), s.player_dir.clone(), s.headless_dir.clone());
     *s = settings;
     s.host_dir = h;
     s.player_dir = p;
+    s.headless_dir = hl;
     s.save();
     drop(s);
     // refresh the Discord message so a new webhook or restart time shows up right away
@@ -166,7 +210,11 @@ fn status(core: Ctx) -> procs::Status {
 fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option<String>) -> Result<(), String> {
     let s = core.settings.lock().unwrap().clone();
     let host = host_dir(&s);
-    let player = s.player_dir.as_ref().map(PathBuf::from).filter(|p| install::player_problem(p).is_none());
+    let player = s
+        .player_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .filter(|p| install::player_problem(p).is_none());
 
     if mode != "join" && host.is_none() {
         return Err("Set the host install in Settings first.".into());
@@ -179,7 +227,12 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
             return Err("Pick who you're playing as.".into());
         }
     }
-    let headless_id = host.as_deref().and_then(|h| profiles::headless_ids(h).into_iter().next());
+    let headless = headless_dir(&s);
+    // the profile lives on the server, the client in its own folder
+    let headless_id = host
+        .as_deref()
+        .and_then(|h| profiles::headless_ids(h).into_iter().next())
+        .filter(|_| headless.is_some());
     let port = host.as_deref().map(install::server_port).unwrap_or(6969);
     let addr = game_addr(&s, &mode);
     if mode != "join" && s.backup_on_launch {
@@ -211,7 +264,19 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
         }
         st.save();
     }
-    procs::launch(core.inner().clone(), procs::LaunchPlan { mode, host, player, profile, headless_id, port, addr })?;
+    procs::launch(
+        core.inner().clone(),
+        procs::LaunchPlan {
+            mode,
+            host,
+            player,
+            headless,
+            profile,
+            headless_id,
+            port,
+            addr,
+        },
+    )?;
     if s.minimize_on_launch {
         let _ = window.minimize();
     }
@@ -221,13 +286,19 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
 #[tauri::command]
 async fn stop(core: Ctx<'_>) -> Result<(), String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || procs::stop_all(&c, "user")).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || procs::stop_all(&c, "user"))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn start_game(core: Ctx, profile: String) -> Result<(), String> {
     let s = core.settings.lock().unwrap().clone();
-    let player = s.player_dir.as_ref().map(PathBuf::from).ok_or("Set your game install in Settings first.")?;
+    let player = s
+        .player_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .ok_or("Set your game install in Settings first.")?;
     let addr = game_addr(&s, &core.stack.mode.lock().unwrap());
     if !core.stack.active.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("Start the stack first.".into());
@@ -238,13 +309,17 @@ fn start_game(core: Ctx, profile: String) -> Result<(), String> {
 #[tauri::command]
 async fn restart_headless(core: Ctx<'_>) -> Result<(), String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || procs::restart_headless(&c)).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || procs::restart_headless(&c))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn restart_server(core: Ctx<'_>) -> Result<(), String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || procs::restart_server(&c, "user")).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || procs::restart_server(&c, "user"))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize)]
@@ -273,13 +348,17 @@ fn connection_info(core: Ctx) -> Connection {
 
 #[tauri::command]
 async fn check_reach(addr: String) -> bool {
-    tauri::async_runtime::spawn_blocking(move || install::reachable(&addr, std::time::Duration::from_secs(3))).await.unwrap_or(false)
+    tauri::async_runtime::spawn_blocking(move || install::reachable(&addr, std::time::Duration::from_secs(3)))
+        .await
+        .unwrap_or(false)
 }
 
 #[tauri::command]
 async fn stop_headless(core: Ctx<'_>) -> Result<(), String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || procs::stop_headless(&c)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || procs::stop_headless(&c))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -295,19 +374,29 @@ fn history(limit: usize) -> Vec<serde_json::Value> {
 #[tauri::command]
 async fn export_diagnostics(core: Ctx<'_>, app: tauri::AppHandle) -> Result<bool, String> {
     let stamp = history::now();
-    let Some(path) = app.dialog().file().set_file_name(format!("fika-hub-diagnostics-{stamp}.zip")).add_filter("Zip", &["zip"]).blocking_save_file() else {
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_file_name(format!("fika-hub-diagnostics-{stamp}.zip"))
+        .add_filter("Zip", &["zip"])
+        .blocking_save_file()
+    else {
         return Ok(false);
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || diagnostics::build(&c, &path)).await.map_err(|e| e.to_string())??;
+    tauri::async_runtime::spawn_blocking(move || diagnostics::build(&c, &path))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(true)
 }
 
 #[tauri::command]
 async fn health_check(core: Ctx<'_>, mode: String, profile: Option<String>) -> Result<Vec<health::Check>, String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || health::run(&c, &mode, profile.as_deref())).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || health::run(&c, &mode, profile.as_deref()))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn host_or_err(core: &Core) -> Result<PathBuf, String> {
@@ -317,7 +406,9 @@ fn host_or_err(core: &Core) -> Result<PathBuf, String> {
 #[tauri::command]
 async fn backup_list(core: Ctx<'_>) -> Result<Vec<backups::Backup>, String> {
     let host = host_dir(&core.settings.lock().unwrap());
-    tauri::async_runtime::spawn_blocking(move || backups::list_all(host.as_deref())).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || backups::list_all(host.as_deref()))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -333,7 +424,9 @@ async fn backup_restore(core: Ctx<'_>, source: String, id: String, profiles: Vec
         return Err("Stop the server first. It keeps profiles in memory and would write them straight back over the backup.".into());
     }
     let keep = core.settings.lock().unwrap().backup_keep;
-    let n = tauri::async_runtime::spawn_blocking(move || backups::restore(&host, &source, &id, &profiles, keep)).await.map_err(|e| e.to_string())??;
+    let n = tauri::async_runtime::spawn_blocking(move || backups::restore(&host, &source, &id, &profiles, keep))
+        .await
+        .map_err(|e| e.to_string())??;
     history::record("profile_restore", serde_json::json!({ "count": n }));
     Ok(n)
 }
@@ -345,7 +438,10 @@ fn backup_delete(id: String) -> Result<(), String> {
 
 #[tauri::command]
 fn backup_open() -> Result<(), String> {
-    std::process::Command::new("explorer.exe").arg(backups::open_dir()).spawn().map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer.exe")
+        .arg(backups::open_dir())
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -357,13 +453,17 @@ fn snapshot_list(root: String) -> Vec<snapshots::Snapshot> {
 #[tauri::command]
 async fn snapshot_create(core: Ctx<'_>, root: String, name: String) -> Result<snapshots::Snapshot, String> {
     let path = config_root(&core, &root)?;
-    tauri::async_runtime::spawn_blocking(move || snapshots::create(&root, &path, &name)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || snapshots::create(&root, &path, &name))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 async fn snapshot_compare(core: Ctx<'_>, root: String, id: String) -> Result<Vec<snapshots::Change>, String> {
     let path = config_root(&core, &root)?;
-    tauri::async_runtime::spawn_blocking(move || snapshots::compare(&root, &id, &path)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || snapshots::compare(&root, &id, &path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -402,7 +502,9 @@ fn next_restart(core: Ctx) -> u64 {
 #[tauri::command]
 async fn discord_test(core: Ctx<'_>) -> Result<(), String> {
     let c = core.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || schedule::post_status(&c)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || schedule::post_status(&c))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -419,13 +521,18 @@ fn list_profiles(core: Ctx) -> Vec<profiles::Profile> {
 #[tauri::command]
 async fn lobby(core: Ctx<'_>, session: Option<String>) -> Result<fika::Lobby, String> {
     let s = core.settings.lock().unwrap().clone();
-    let Some(host) = host_dir(&s) else { return Ok(fika::Lobby::default()) };
+    let Some(host) = host_dir(&s) else {
+        return Ok(fika::Lobby::default());
+    };
     let port = install::server_port(&host);
     if !install::port_listening(port) {
         return Ok(fika::Lobby::default());
     }
     let heads = profiles::headless_ids(&host);
-    let session = session.filter(|x| !x.is_empty()).or_else(|| heads.first().cloned()).unwrap_or_default();
+    let session = session
+        .filter(|x| !x.is_empty())
+        .or_else(|| heads.first().cloned())
+        .unwrap_or_default();
     Ok(fika::lobby(&core.http, port, &session).await)
 }
 
@@ -441,7 +548,13 @@ fn clear_logs(core: Ctx, stream: usize) {
 
 #[tauri::command]
 async fn save_text(app: tauri::AppHandle, name: String, text: String) -> Result<bool, String> {
-    let Some(path) = app.dialog().file().set_file_name(&name).add_filter("Text", &["txt", "log"]).blocking_save_file() else {
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_file_name(&name)
+        .add_filter("Text", &["txt", "log"])
+        .blocking_save_file()
+    else {
         return Ok(false);
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
@@ -459,24 +572,36 @@ fn open_folder(core: Ctx, which: String) -> Result<(), String> {
         "player" => player,
         "mods" => host.as_deref().and_then(install::spt_root).map(|r| r.join("user").join("mods")),
         "profiles" => host.as_deref().and_then(install::profiles_dir),
-        "headless-log" => host.map(|h| h.join("BepInEx")),
+        "headless" => headless_dir(&s),
+        "headless-log" => headless_dir(&s).map(|h| h.join("BepInEx")),
         "game-log" => player.map(|p| p.join("BepInEx")),
         other => {
             // config files are opened by root key + relative path
             let (root, rel) = other.split_once('|').ok_or("unknown folder")?;
-            let roots = configs::roots(host_dir(&s).as_deref(), s.player_dir.as_ref().map(Path::new));
+            let roots = config_roots_of(&s);
             let r = roots.iter().find(|r| r.key == root).ok_or("unknown root")?;
             configs::resolve(Path::new(&r.path), rel)?.parent().map(Path::to_path_buf)
         }
     }
     .ok_or("That folder isn't set.")?;
-    std::process::Command::new("explorer.exe").arg(target).spawn().map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer.exe")
+        .arg(target)
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn config_roots_of(s: &Settings) -> Vec<configs::Root> {
+    configs::roots(
+        host_dir(s).as_deref(),
+        headless_dir(s).as_deref(),
+        s.player_dir.as_ref().map(Path::new),
+    )
 }
 
 fn config_root(core: &Core, key: &str) -> Result<PathBuf, String> {
     let s = core.settings.lock().unwrap().clone();
-    configs::roots(host_dir(&s).as_deref(), s.player_dir.as_ref().map(Path::new))
+    config_roots_of(&s)
         .into_iter()
         .find(|r| r.key == key)
         .map(|r| PathBuf::from(r.path))
@@ -486,13 +611,15 @@ fn config_root(core: &Core, key: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 fn config_roots(core: Ctx) -> Vec<configs::Root> {
     let s = core.settings.lock().unwrap().clone();
-    configs::roots(host_dir(&s).as_deref(), s.player_dir.as_ref().map(Path::new))
+    config_roots_of(&s)
 }
 
 #[tauri::command]
 async fn config_list(core: Ctx<'_>, root: String, all: bool) -> Result<Vec<configs::Entry>, String> {
     let r = config_root(&core, &root)?;
-    tauri::async_runtime::spawn_blocking(move || configs::scan(&r, all)).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || configs::scan(&r, all))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -538,7 +665,10 @@ fn main() {
         logs: logs.clone(),
         stack: procs::Stack::default(),
         http: fika::client(),
-        web: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().expect("http client"),
+        web: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("http client"),
         sched: schedule::State::default(),
     });
     history::trim();
@@ -546,9 +676,18 @@ fn main() {
 
     // Tails run for the app's whole life so a stack started elsewhere still shows up
     let c = core.clone();
-    logs::tail(logs.clone(), logs::HEADLESS, move || host_dir(&c.settings.lock().unwrap()).map(|h| install::bepinex_log(&h)));
+    logs::tail(logs.clone(), logs::HEADLESS, move || {
+        headless_dir(&c.settings.lock().unwrap()).map(|h| install::bepinex_log(&h))
+    });
     let c = core.clone();
-    logs::tail(logs.clone(), logs::GAME, move || c.settings.lock().unwrap().player_dir.as_ref().map(|p| install::bepinex_log(Path::new(p))));
+    logs::tail(logs.clone(), logs::GAME, move || {
+        c.settings
+            .lock()
+            .unwrap()
+            .player_dir
+            .as_ref()
+            .map(|p| install::bepinex_log(Path::new(p)))
+    });
 
     notify::register();
 

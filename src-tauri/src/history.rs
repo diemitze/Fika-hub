@@ -9,7 +9,10 @@ pub fn path() -> PathBuf {
 }
 
 pub fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub fn record(kind: &str, detail: Value) {
@@ -27,7 +30,10 @@ pub fn record(kind: &str, detail: Value) {
 pub fn read(limit: usize) -> Vec<Value> {
     let text = std::fs::read_to_string(path()).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
-    lines[lines.len().saturating_sub(limit)..].iter().filter_map(|l| serde_json::from_str(l).ok()).collect()
+    lines[lines.len().saturating_sub(limit)..]
+        .iter()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
 }
 
 /// Called once at startup so the file can't grow forever.

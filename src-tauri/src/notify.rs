@@ -7,9 +7,7 @@ const APP_ID: &str = "dev.20fpsguy.fikahub";
 pub fn register() {
     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
     let _ = hkcu.delete_subkey_all(r"Software\Classes\AppUserModelId\dev.20fpsguy.fikacontrol");
-    let Ok((key, _)) = hkcu
-        .create_subkey(format!(r"Software\Classes\AppUserModelId\{APP_ID}"))
-    else {
+    let Ok((key, _)) = hkcu.create_subkey(format!(r"Software\Classes\AppUserModelId\{APP_ID}")) else {
         return;
     };
     let _ = key.set_value("DisplayName", &"Fika Hub");

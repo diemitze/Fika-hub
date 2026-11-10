@@ -126,7 +126,11 @@ pub async fn lobby(http: &reqwest::Client, port: u16, session: &str) -> Lobby {
                     let players = (int_of(r, "playerCount") - headless as i64).max(0);
                     let requester = str_of(r, "headlessRequesterNickname");
                     Raid {
-                        host: if headless && !requester.is_empty() { requester } else { str_of(r, "hostUsername") },
+                        host: if headless && !requester.is_empty() {
+                            requester
+                        } else {
+                            str_of(r, "hostUsername")
+                        },
                         location: str_of(r, "location"),
                         side: int_of(r, "side"),
                         status: int_of(r, "status"),
@@ -140,7 +144,11 @@ pub async fn lobby(http: &reqwest::Client, port: u16, session: &str) -> Lobby {
 
     Lobby {
         online,
-        version: version.as_ref().and_then(|v| v.get("version")).and_then(|v| v.as_str()).map(String::from),
+        version: version
+            .as_ref()
+            .and_then(|v| v.get("version"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
         players,
         raids,
     }

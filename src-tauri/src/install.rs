@@ -24,19 +24,21 @@ pub fn has_fika_headless(install: &Path) -> bool {
     fika_dir(install).join("Fika.Headless.dll").is_file()
 }
 
-/// None when the folder can host the stack, else a human reason.
+/// None when the folder can run the SPT server, else a human reason.
 pub fn host_problem(p: &Path) -> Option<String> {
     if !p.is_dir() {
         return Some("Folder doesn't exist.".into());
     }
-    if !has_eft(p) {
-        return Some("No EscapeFromTarkov.exe in that folder.".into());
-    }
     if spt_root(p).is_none() {
         return Some("No SPT server (SPT_Runtime\\SPT.Server.exe) found.".into());
     }
-    if !has_fika_core(p) {
-        return Some("Fika isn't installed here.".into());
+    None
+}
+
+/// None when the folder can run the headless client, else a human reason.
+pub fn headless_problem(p: &Path) -> Option<String> {
+    if let Some(e) = player_problem(p) {
+        return Some(e);
     }
     if !has_fika_headless(p) {
         return Some("Fika headless plugin (Fika.Headless.dll) isn't installed here.".into());
@@ -115,9 +117,7 @@ pub fn fika_version(install: &Path) -> Option<String> {
 
 pub fn file_version(path: &Path) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
-    };
+    use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO};
 
     if !path.is_file() {
         return None;

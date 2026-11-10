@@ -4,7 +4,19 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 const MAX_BYTES: u64 = 2 * 1024 * 1024;
-const EXTS: &[&str] = &["json", "jsonc", "json5", "ini", "cfg", "conf", "toml", "yaml", "yml", "xml", "properties"];
+const EXTS: &[&str] = &[
+    "json",
+    "jsonc",
+    "json5",
+    "ini",
+    "cfg",
+    "conf",
+    "toml",
+    "yaml",
+    "yml",
+    "xml",
+    "properties",
+];
 const SKIP_DIRS: &[&str] = &["node_modules", ".git", ".fikarunner-backups", "bin", "obj"];
 
 #[derive(Serialize)]
@@ -33,15 +45,24 @@ pub struct Doc {
     pub read_only: Option<String>,
 }
 
-pub fn roots(host: Option<&Path>, player: Option<&Path>) -> Vec<Root> {
+pub fn roots(host: Option<&Path>, headless: Option<&Path>, player: Option<&Path>) -> Vec<Root> {
     let mut out = vec![];
     let mut add = |key: &str, label: &str, p: Option<PathBuf>| {
         if let Some(p) = p {
-            out.push(Root { key: key.into(), label: label.into(), exists: p.is_dir(), path: p.to_string_lossy().into() });
+            out.push(Root {
+                key: key.into(),
+                label: label.into(),
+                exists: p.is_dir(),
+                path: p.to_string_lossy().into(),
+            });
         }
     };
-    add("server", "Server", host.and_then(crate::install::spt_root).map(|r| r.join("user").join("mods")));
-    add("headless", "Headless", host.map(|h| h.join("BepInEx").join("config")));
+    add(
+        "server",
+        "Server",
+        host.and_then(crate::install::spt_root).map(|r| r.join("user").join("mods")),
+    );
+    add("headless", "Headless", headless.map(|h| h.join("BepInEx").join("config")));
     add("game", "Game", player.map(|p| p.join("BepInEx").join("config")));
     out
 }
@@ -81,7 +102,10 @@ fn walk(root: &Path, dir: &Path, all: bool, out: &mut Vec<Entry>) {
         let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
         let likely = stem.contains("config")
             || stem.contains("setting")
-            || parts.iter().skip(1).any(|x| matches!(x.to_lowercase().as_str(), "config" | "configs" | "settings"))
+            || parts
+                .iter()
+                .skip(1)
+                .any(|x| matches!(x.to_lowercase().as_str(), "config" | "configs" | "settings"))
             || matches!(ext.as_str(), "ini" | "cfg" | "conf" | "toml" | "properties");
         if !all && !likely {
             continue;
@@ -130,12 +154,24 @@ pub fn read(path: &Path) -> Result<Doc, String> {
     }
     let st = stamp(&bytes);
     if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
-        return Ok(Doc { text: String::new(), stamp: st, read_only: Some("UTF-16 file, open it in a text editor.".into()) });
+        return Ok(Doc {
+            text: String::new(),
+            stamp: st,
+            read_only: Some("UTF-16 file, open it in a text editor.".into()),
+        });
     }
     let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
     match std::str::from_utf8(body) {
-        Ok(t) => Ok(Doc { text: t.to_string(), stamp: st, read_only: None }),
-        Err(_) => Ok(Doc { text: String::from_utf8_lossy(body).into(), stamp: st, read_only: Some("Not valid UTF-8, editing could damage it.".into()) }),
+        Ok(t) => Ok(Doc {
+            text: t.to_string(),
+            stamp: st,
+            read_only: None,
+        }),
+        Err(_) => Ok(Doc {
+            text: String::from_utf8_lossy(body).into(),
+            stamp: st,
+            read_only: Some("Not valid UTF-8, editing could damage it.".into()),
+        }),
     }
 }
 
@@ -183,7 +219,9 @@ pub fn validate(name: &str, text: &str) -> Result<String, String> {
         "json" | "jsonc" => serde_json::from_str::<serde_json::Value>(&strip_json_comments(text))
             .map(|_| "Valid JSON.".to_string())
             .map_err(|e| format!("JSON error at line {}, column {}: {}", e.line(), e.column(), e)),
-        "xml" => roxmltree::Document::parse(text).map(|_| "Valid XML.".to_string()).map_err(|e| format!("XML error: {e}")),
+        "xml" => roxmltree::Document::parse(text)
+            .map(|_| "Valid XML.".to_string())
+            .map_err(|e| format!("XML error: {e}")),
         _ => Ok(format!(".{ext} isn't syntax-checked.")),
     }
 }
@@ -206,7 +244,10 @@ pub fn save(path: &Path, text: &str, expected: &str) -> Result<String, String> {
     let dir = path.parent().ok_or("bad path")?;
     let backups = dir.join(".fikarunner-backups");
     std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     let backup = backups.join(format!("{name}.{ts}.bak"));
     std::fs::write(&backup, &current).map_err(|e| e.to_string())?;
 

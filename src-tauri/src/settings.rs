@@ -6,6 +6,8 @@ use std::path::PathBuf;
 pub struct Settings {
     pub host_dir: Option<String>,
     pub player_dir: Option<String>,
+    /// only set when the headless lives apart from the server install
+    pub headless_dir: Option<String>,
     /// "", "Windowed", "Borderless Fullscreen" or "Fullscreen". Empty leaves the game alone.
     pub display_mode: String,
     pub minimize_on_launch: bool,
@@ -39,6 +41,7 @@ impl Default for Settings {
         Self {
             host_dir: None,
             player_dir: None,
+            headless_dir: None,
             display_mode: String::new(),
             minimize_on_launch: false,
             warn_mismatch: true,

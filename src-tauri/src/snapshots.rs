@@ -63,7 +63,11 @@ pub fn create(root_key: &str, root: &Path, name: &str) -> Result<Snapshot, Strin
         std::fs::create_dir_all(dst.parent().unwrap()).map_err(|e| e.to_string())?;
         std::fs::copy(root.join(rel), &dst).map_err(|e| format!("{rel}: {e}"))?;
     }
-    let name = if name.trim().is_empty() { "Snapshot".to_string() } else { name.trim().to_string() };
+    let name = if name.trim().is_empty() {
+        "Snapshot".to_string()
+    } else {
+        name.trim().to_string()
+    };
     let s = Snapshot { id, name, created, files };
     std::fs::write(base.join("snapshot.json"), serde_json::to_string_pretty(&s).unwrap_or_default()).map_err(|e| e.to_string())?;
     Ok(s)
@@ -84,14 +88,23 @@ pub fn compare(root_key: &str, id: &str, root: &Path) -> Result<Vec<Change>, Str
     for rel in &snap.files {
         let old = std::fs::read(files.join(rel)).ok();
         match std::fs::read(root.join(rel)) {
-            Err(_) => out.push(Change { rel: rel.clone(), status: "missing".into() }),
-            Ok(now) if Some(&now) != old.as_ref() => out.push(Change { rel: rel.clone(), status: "changed".into() }),
+            Err(_) => out.push(Change {
+                rel: rel.clone(),
+                status: "missing".into(),
+            }),
+            Ok(now) if Some(&now) != old.as_ref() => out.push(Change {
+                rel: rel.clone(),
+                status: "changed".into(),
+            }),
             _ => {}
         }
     }
     for e in crate::configs::scan(root, false) {
         if !snap.files.contains(&e.rel) {
-            out.push(Change { rel: e.rel, status: "added".into() });
+            out.push(Change {
+                rel: e.rel,
+                status: "added".into(),
+            });
         }
     }
     Ok(out)
@@ -120,7 +133,10 @@ pub fn restore(root_key: &str, id: &str, root: &Path, only: Option<Vec<String>>)
             let name = dst.file_name().unwrap_or_default().to_string_lossy().to_string();
             let backups = parent.join(".fikarunner-backups");
             std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-            let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
             std::fs::write(backups.join(format!("{name}.{ts}.bak")), old).map_err(|e| e.to_string())?;
         }
         std::fs::create_dir_all(dst.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -144,15 +160,23 @@ pub struct FileBackup {
 
 /// The .bak files the editor keeps next to a config on every save.
 pub fn file_backups(path: &Path) -> Vec<FileBackup> {
-    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else { return vec![] };
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return vec![];
+    };
     let prefix = format!("{}.", name.to_string_lossy());
-    let Ok(rd) = std::fs::read_dir(parent.join(".fikarunner-backups")) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(parent.join(".fikarunner-backups")) else {
+        return vec![];
+    };
     let mut out: Vec<FileBackup> = rd
         .flatten()
         .filter_map(|e| {
             let n = e.file_name().to_string_lossy().to_string();
             let ts = n.strip_prefix(&prefix)?.strip_suffix(".bak")?.parse::<u64>().ok()?;
-            Some(FileBackup { saved: ts / 1000, size: e.metadata().map(|m| m.len()).unwrap_or(0), name: n })
+            Some(FileBackup {
+                saved: ts / 1000,
+                size: e.metadata().map(|m| m.len()).unwrap_or(0),
+                name: n,
+            })
         })
         .collect();
     out.sort_by(|a, b| b.saved.cmp(&a.saved));

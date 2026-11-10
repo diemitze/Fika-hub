@@ -27,7 +27,11 @@ struct Local {
 fn local_now() -> Local {
     let mut t: windows_sys::Win32::Foundation::SYSTEMTIME = unsafe { std::mem::zeroed() };
     unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(&mut t) };
-    Local { day: format!("{}-{}-{}", t.wYear, t.wMonth, t.wDay), minute: t.wHour as i64 * 60 + t.wMinute as i64, second: t.wSecond as i64 }
+    Local {
+        day: format!("{}-{}-{}", t.wYear, t.wMonth, t.wDay),
+        minute: t.wHour as i64 * 60 + t.wMinute as i64,
+        second: t.wSecond as i64,
+    }
 }
 
 fn parse_hhmm(s: &str) -> Option<i64> {
@@ -54,7 +58,11 @@ fn lobby(core: &Core) -> Option<fika::Lobby> {
     if !install::port_listening(port) {
         return None;
     }
-    let session = crate::profiles::headless_ids(&host).into_iter().next().or(s.last_profile.clone()).unwrap_or_default();
+    let session = crate::profiles::headless_ids(&host)
+        .into_iter()
+        .next()
+        .or(s.last_profile.clone())
+        .unwrap_or_default();
     let l = tauri::async_runtime::block_on(fika::lobby(&core.http, port, &session));
     l.online.then_some(l)
 }
@@ -80,7 +88,11 @@ fn tick_restart(core: &Arc<Core>) {
     let fired_today = *st.fired_day.lock().unwrap() == now.day;
     let pending = st.pending_since.lock().unwrap().is_some();
     st.next_restart.store(
-        if pending { crate::history::now() } else { crate::history::now() + (until * 60 - now.second).max(0) as u64 + if until == 0 && fired_today { 86400 } else { 0 } },
+        if pending {
+            crate::history::now()
+        } else {
+            crate::history::now() + (until * 60 - now.second).max(0) as u64 + if until == 0 && fired_today { 86400 } else { 0 }
+        },
         SeqCst,
     );
     if !server_ours(core) {
@@ -141,7 +153,9 @@ fn map_name(id: &str) -> String {
 }
 
 fn valid_hook(url: &str) -> bool {
-    url.starts_with("https://discord.com/api/webhooks/") || url.starts_with("https://discordapp.com/api/webhooks/") || url.starts_with("https://ptb.discord.com/api/webhooks/")
+    url.starts_with("https://discord.com/api/webhooks/")
+        || url.starts_with("https://discordapp.com/api/webhooks/")
+        || url.starts_with("https://ptb.discord.com/api/webhooks/")
 }
 
 fn state_file() -> std::path::PathBuf {
@@ -161,7 +175,12 @@ fn status_payload(core: &Core, online: bool) -> serde_json::Value {
                 .iter()
                 .map(|p| {
                     let act = ACTIVITY.get(p.activity as usize).copied().unwrap_or("Online");
-                    let at = p.location.as_deref().filter(|_| p.activity == 1).map(|m| format!(", {}", map_name(m))).unwrap_or_default();
+                    let at = p
+                        .location
+                        .as_deref()
+                        .filter(|_| p.activity == 1)
+                        .map(|m| format!(", {}", map_name(m)))
+                        .unwrap_or_default();
                     format!("**{}** · {act}{at}", p.nickname)
                 })
                 .collect::<Vec<_>>()
@@ -174,7 +193,12 @@ fn status_payload(core: &Core, online: bool) -> serde_json::Value {
                 .iter()
                 .map(|r| {
                     let st = ["Loading", "In raid", "Finished"].get(r.status as usize).copied().unwrap_or("?");
-                    format!("{} · {} player{} · {st}", map_name(&r.location), r.players, if r.players == 1 { "" } else { "s" })
+                    format!(
+                        "{} · {} player{} · {st}",
+                        map_name(&r.location),
+                        r.players,
+                        if r.players == 1 { "" } else { "s" }
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -205,7 +229,12 @@ async fn send(core: &Core, url: &str, body: &serde_json::Value, edit: Option<&st
         Some(id) => http.patch(format!("{url}/messages/{id}")),
         None => http.post(format!("{url}?wait=true")),
     };
-    let res = req.header("Content-Type", "application/json").body(body.to_string()).send().await.map_err(|e| e.to_string())?;
+    let res = req
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let code = res.status();
     if code.as_u16() == 404 && edit.is_some() {
         return Ok(None);
@@ -228,7 +257,10 @@ pub fn post_status(core: &Core) -> Result<(), String> {
     }
     let online = core.stack.active.load(SeqCst) && lobby(core).is_some();
     let body = status_payload(core, online);
-    let saved: serde_json::Value = std::fs::read_to_string(state_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let saved: serde_json::Value = std::fs::read_to_string(state_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
     let key = url.rsplit('/').nth(1).unwrap_or("").to_string();
     let old = saved.get(&key).and_then(|v| v.as_str()).map(String::from);
 
@@ -267,9 +299,14 @@ fn tick_discord(core: &Core) {
         return;
     }
     let st = &core.sched;
-    let online = core.stack.active.load(SeqCst) && install::port_listening(crate::host_dir(&s).as_deref().map(install::server_port).unwrap_or(6969));
+    let online =
+        core.stack.active.load(SeqCst) && install::port_listening(crate::host_dir(&s).as_deref().map(install::server_port).unwrap_or(6969));
     let changed = st.was_online.swap(online, SeqCst) != online;
-    let due = st.last_post.lock().unwrap().is_none_or(|t| t.elapsed() >= Duration::from_secs(s.discord_interval.max(1) as u64 * 60));
+    let due = st
+        .last_post
+        .lock()
+        .unwrap()
+        .is_none_or(|t| t.elapsed() >= Duration::from_secs(s.discord_interval.max(1) as u64 * 60));
     // offline doesn't change, so post it once and then stay quiet
     if !(changed || st.force_post.swap(false, SeqCst) || (online && due)) {
         return;

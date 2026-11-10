@@ -43,9 +43,7 @@ pub fn read(path: &Path) -> Option<Profile> {
     let pmc = root.pointer("/characters/pmc");
     let pinfo = pmc.and_then(|p| p.get("Info"));
 
-    let s = |v: Option<&Value>, k: &str| -> String {
-        v.and_then(|v| v.get(k)).and_then(|x| x.as_str()).unwrap_or("").to_string()
-    };
+    let s = |v: Option<&Value>, k: &str| -> String { v.and_then(|v| v.get(k)).and_then(|x| x.as_str()).unwrap_or("").to_string() };
     let n = |v: Option<&Value>, k: &str| -> i64 { v.and_then(|v| v.get(k)).and_then(|x| x.as_i64()).unwrap_or(0) };
 
     let username = s(Some(info), "username");
@@ -57,7 +55,10 @@ pub fn read(path: &Path) -> Option<Profile> {
     // Counters are a flat list of {Key:[...], Value}; match whole keys so "Kills"
     // doesn't swallow "KilledBoss" and friends.
     let mut c: HashMap<String, i64> = HashMap::new();
-    if let Some(items) = pmc.and_then(|p| p.pointer("/Stats/Eft/OverallCounters/Items")).and_then(|v| v.as_array()) {
+    if let Some(items) = pmc
+        .and_then(|p| p.pointer("/Stats/Eft/OverallCounters/Items"))
+        .and_then(|v| v.as_array())
+    {
         for it in items {
             let key = it
                 .get("Key")
@@ -119,14 +120,19 @@ pub fn read(path: &Path) -> Option<Profile> {
         lifetime_secs: ctr("LifeTime/Pmc"),
         bodies_looted: ctr("BodiesLooted"),
         roubles,
-        last_session: pmc.and_then(|p| p.pointer("/Stats/Eft/LastSessionDate")).and_then(|v| v.as_i64()).unwrap_or(0),
+        last_session: pmc
+            .and_then(|p| p.pointer("/Stats/Eft/LastSessionDate"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
         valid,
         saved_ago,
     })
 }
 
 pub fn list(host: &Path) -> Vec<Profile> {
-    let Some(dir) = crate::install::profiles_dir(host) else { return vec![] };
+    let Some(dir) = crate::install::profiles_dir(host) else {
+        return vec![];
+    };
     let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
     let mut out: Vec<Profile> = rd
         .flatten()

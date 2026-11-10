@@ -7,9 +7,18 @@ const $ = (id) => document.getElementById(id);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const MAPS = {
-  bigmap: "Customs", factory4_day: "Factory", factory4_night: "Night Factory", interchange: "Interchange",
-  laboratory: "The Lab", lighthouse: "Lighthouse", rezervbase: "Reserve", shoreline: "Shoreline",
-  woods: "Woods", tarkovstreets: "Streets", sandbox: "Ground Zero", sandbox_high: "Ground Zero 21+",
+  bigmap: "Customs",
+  factory4_day: "Factory",
+  factory4_night: "Night Factory",
+  interchange: "Interchange",
+  laboratory: "The Lab",
+  lighthouse: "Lighthouse",
+  rezervbase: "Reserve",
+  shoreline: "Shoreline",
+  woods: "Woods",
+  tarkovstreets: "Streets",
+  sandbox: "Ground Zero",
+  sandbox_high: "Ground Zero 21+",
   labyrinth: "Labyrinth",
 };
 const ACTIVITY = ["In menu", "In raid", "In stash", "In hideout", "On the flea"];
@@ -41,9 +50,13 @@ const state = {
 
 // ============================ helpers ============================
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const mapName = (id) => MAPS[(id || "").toLowerCase()] || id || "Unknown";
-const initials = (n) => (n || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?";
+const initials = (n) =>
+  (n || "?")
+    .replace(/[^A-Za-z0-9]/g, "")
+    .slice(0, 2)
+    .toUpperCase() || "?";
 
 function human(n) {
   if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
@@ -55,12 +68,16 @@ function bytes(b) {
   if (!b) return "-";
   const u = ["B", "KB", "MB", "GB"];
   let i = 0;
-  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  while (b >= 1024 && i < u.length - 1) {
+    b /= 1024;
+    i++;
+  }
   return (b >= 100 || i === 0 ? b.toFixed(0) : b.toFixed(1)) + " " + u[i];
 }
 function dur(s) {
   if (!s && s !== 0) return "-";
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60);
   if (h >= 24) return Math.floor(h / 24) + "d " + (h % 24) + "h";
   if (h) return h + "h " + m + "m";
   if (m) return m + "m " + (s % 60) + "s";
@@ -89,15 +106,23 @@ function confirmBox(title, body, yes = "OK", no = "Cancel") {
     $("modalYes").textContent = yes;
     $("modalNo").textContent = no;
     $("modal").hidden = false;
-    const done = (v) => { $("modal").hidden = true; $("modalYes").onclick = $("modalNo").onclick = null; resolve(v); };
+    const done = (v) => {
+      $("modal").hidden = true;
+      $("modalYes").onclick = $("modalNo").onclick = null;
+      resolve(v);
+    };
     $("modalYes").onclick = () => done(true);
     $("modalNo").onclick = () => done(false);
   });
 }
 
 async function call(cmd, args) {
-  try { return await invoke(cmd, args); }
-  catch (e) { toast(String(e), true); throw e; }
+  try {
+    return await invoke(cmd, args);
+  } catch (e) {
+    toast(String(e), true);
+    throw e;
+  }
 }
 
 // ============================ window + nav ============================
@@ -107,7 +132,11 @@ $("winMax").onclick = () => appWindow?.toggleMaximize();
 $("winClose").onclick = async () => {
   const s = state.status;
   const owns = s && (s.server.owned || s.headless.owned || s.game.owned);
-  if (owns && !(await confirmBox("Quit Fika Hub?", "This stops the server, headless and game that were started from here.", "Stop and quit"))) return;
+  if (
+    owns &&
+    !(await confirmBox("Quit Fika Hub?", "This stops the server, headless and game that were started from here.", "Stop and quit"))
+  )
+    return;
   invoke("quit");
 };
 
@@ -116,9 +145,18 @@ function goto(page) {
   $$(".rail-btn").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   moveRailInd();
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + page));
-  if (page === "console") { state.logSeen = [...state.logErr]; state.badSeen[state.stream] = state.logBad[state.stream]; renderRuns(); renderLog(true); updateBadges(); }
+  if (page === "console") {
+    state.logSeen = [...state.logErr];
+    state.badSeen[state.stream] = state.logBad[state.stream];
+    renderRuns();
+    renderLog(true);
+    updateBadges();
+  }
   if (page === "configs" && !state.cfg.root) loadConfigRoots();
-  if (page === "settings") { loadConnection(); loadNextRestart(); }
+  if (page === "settings") {
+    loadConnection();
+    loadNextRestart();
+  }
   if (page === "history") loadHistory();
   saveUi();
 }
@@ -151,12 +189,27 @@ function setPill(cls, text, meta, progress) {
   $("stackPillBar").style.width = progress == null ? "0" : progress + "%";
 }
 $$("[data-open]").forEach((b) => (b.onclick = () => call("open_folder", { which: b.dataset.open }).catch(() => {})));
-$$("[data-goto-log]").forEach((b) => (b.onclick = () => { setStream(+b.dataset.gotoLog); goto("console"); }));
+$$("[data-goto-log]").forEach(
+  (b) =>
+    (b.onclick = () => {
+      setStream(+b.dataset.gotoLog);
+      goto("console");
+    }),
+);
 
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.key.toLowerCase() === "s" && state.page === "configs") { e.preventDefault(); saveConfig(); }
-  if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "console") { e.preventDefault(); $("logSearch").focus(); }
-  if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "configs") { e.preventDefault(); $(state.cfgView === "raw" ? "cfgFind" : "cfgKeySearch").focus(); }
+  if (e.ctrlKey && e.key.toLowerCase() === "s" && state.page === "configs") {
+    e.preventDefault();
+    saveConfig();
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "console") {
+    e.preventDefault();
+    $("logSearch").focus();
+  }
+  if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "configs") {
+    e.preventDefault();
+    $(state.cfgView === "raw" ? "cfgFind" : "cfgKeySearch").focus();
+  }
   if (e.key === "Escape") $("whoMenu").hidden = true;
 });
 
@@ -182,12 +235,20 @@ async function boot() {
 
 // ---- remembered UI state (ui.json next to settings) ----
 const UI_TOGGLES = ["logWrap", "logQuiet", "logFollow", "cfgAll"];
-let uiReady = false, uiT;
+let uiReady = false,
+  uiT;
 function saveUi() {
   if (!uiReady) return;
   clearTimeout(uiT);
   uiT = setTimeout(() => {
-    const ui = { page: state.page, stream: state.stream, level: state.level, cfgRoot: state.cfg.root, bkSrc: state.bk.src, cfgView: state.cfgView };
+    const ui = {
+      page: state.page,
+      stream: state.stream,
+      level: state.level,
+      cfgRoot: state.cfg.root,
+      bkSrc: state.bk.src,
+      cfgView: state.cfgView,
+    };
     UI_TOGGLES.forEach((id) => (ui[id] = $(id).checked));
     invoke("ui_state_set", { ui }).catch(() => {});
   }, 400);
@@ -242,6 +303,11 @@ function applyBoot(b) {
   $("setPlayer").textContent = b.playerDir || "Not set (host only)";
   $("setPlayerNote").textContent = b.playerProblem || (v.sptPlayer ? `SPT ${v.sptPlayer} · Fika ${v.fikaPlayer || "?"}` : "");
   $("setPlayerNote").className = b.playerProblem ? "bad" : "";
+  $("setHeadless").textContent = b.headlessDir || b.settings.headlessDir || "Not found";
+  $("setHeadlessNote").textContent =
+    b.headlessProblem || (b.headlessSeparate ? "Separate from the host install." : "Same as the host install.");
+  $("setHeadlessNote").className = b.headlessProblem ? "bad" : "";
+  $("resetHeadless").hidden = !b.headlessSeparate;
 
   $$("[data-set]").forEach((i) => (i.checked = !!b.settings[i.dataset.set]));
   applySettingValues();
@@ -253,10 +319,12 @@ function showSetup() {
   const b = state.boot;
   $("setup").hidden = false;
   $("stepHost").classList.toggle("done", !b.hostProblem);
-  $("setupHostText").textContent = b.hostDir || "Where the server and headless live.";
+  $("setupHostText").textContent = b.hostDir || "Where the SPT server lives.";
   $("setupHostBtn").hidden = b.hostFromExe;
   $("stepPlayer").classList.toggle("done", !!b.playerDir && !b.playerProblem);
   $("setupPlayerText").textContent = b.playerDir || "The copy you play on. Skip it if you only host.";
+  $("stepHeadless").classList.toggle("done", !b.headlessProblem);
+  $("setupHeadlessText").textContent = b.headlessDir || b.headlessProblem || "Only if the headless isn't in the host install.";
   $("setupDone").disabled = !!b.hostProblem;
 }
 
@@ -277,22 +345,51 @@ async function browse(kind) {
     return null;
   }
 }
-$("setupHostBtn").onclick = async () => { await browse("host"); showSetup(); };
-$("setupPlayerBtn").onclick = async () => { await browse("player"); showSetup(); };
+$("setupHostBtn").onclick = async () => {
+  await browse("host");
+  showSetup();
+};
+$("setupPlayerBtn").onclick = async () => {
+  await browse("player");
+  showSetup();
+};
 $("setupDone").onclick = () => ($("setup").hidden = true);
 $("browseHost").onclick = () => browse("host");
 $("browsePlayer").onclick = () => browse("player");
+$("setupHeadlessBtn").onclick = async () => {
+  await browse("headless");
+  showSetup();
+};
+$("browseHeadless").onclick = () => browse("headless");
+$("resetHeadless").onclick = async () => {
+  try {
+    applyBoot(await invoke("set_dir", { kind: "headless", path: "" }));
+  } catch (e) {
+    toast(String(e), true);
+  }
+};
 
 // ============================ settings ============================
 
-function saveSettings() { return invoke("save_settings", { settings: state.settings }); }
-$$("[data-set]").forEach((i) => (i.onchange = () => { state.settings[i.dataset.set] = i.checked; saveSettings(); }));
-$$("#displaySeg button").forEach((b) => (b.onclick = () => {
-  state.settings.displayMode = b.dataset.display;
-  $$("#displaySeg button").forEach((x) => x.classList.toggle("on", x === b));
-  saveSettings();
-  toast(b.dataset.display ? `Game will start ${b.textContent.toLowerCase()}` : "Window mode left alone");
-}));
+function saveSettings() {
+  return invoke("save_settings", { settings: state.settings });
+}
+$$("[data-set]").forEach(
+  (i) =>
+    (i.onchange = () => {
+      state.settings[i.dataset.set] = i.checked;
+      saveSettings();
+    }),
+);
+$$("#displaySeg button").forEach(
+  (b) =>
+    (b.onclick = () => {
+      state.settings.displayMode = b.dataset.display;
+      $$("#displaySeg button").forEach((x) => x.classList.toggle("on", x === b));
+      saveSettings();
+      toast(b.dataset.display ? `Game will start ${b.textContent.toLowerCase()}` : "Window mode left alone");
+    }),
+);
 
 // ============================ connection ============================
 
@@ -308,13 +405,20 @@ async function loadConnection() {
   $("srvPort").title = lan ? `Click to copy ${lan} for friends` : "";
   $("serverAddr").placeholder = `127.0.0.1:${c.port}`;
   if (document.activeElement !== $("serverAddr")) $("serverAddr").value = state.settings.serverAddress || "";
-  $("serverAddrNote").textContent = state.settings.serverAddress ? `Game only mode connects to ${c.gameAddr}.` : "Game only mode connects to this PC.";
+  $("serverAddrNote").textContent = state.settings.serverAddress
+    ? `Game only mode connects to ${c.gameAddr}.`
+    : "Game only mode connects to this PC.";
 }
 
 async function copyLan() {
   const c = state.conn;
   if (!c?.lanIp) return;
-  try { await navigator.clipboard.writeText(`${c.lanIp}:${c.port}`); toast("Address copied"); } catch { toast("Clipboard unavailable", true); }
+  try {
+    await navigator.clipboard.writeText(`${c.lanIp}:${c.port}`);
+    toast("Address copied");
+  } catch {
+    toast("Clipboard unavailable", true);
+  }
 }
 $("connCopy").onclick = copyLan;
 $("srvPort").onclick = copyLan;
@@ -328,9 +432,21 @@ $("connCheck").onclick = async () => {
   const c = state.conn;
   if (!c) return;
   const rows = [];
-  if (LOOPBACK(c.bindIp)) rows.push(checkRow("bad", `SPT only listens on this PC (ip is ${c.bindIp || "unset"} in http.json). Set it to 0.0.0.0 so friends can reach it.`));
+  if (LOOPBACK(c.bindIp))
+    rows.push(
+      checkRow(
+        "bad",
+        `SPT only listens on this PC (ip is ${c.bindIp || "unset"} in http.json). Set it to 0.0.0.0 so friends can reach it.`,
+      ),
+    );
   else rows.push(checkRow("ok", `SPT listens on ${c.bindIp}.`));
-  if (LOOPBACK(c.backendIp)) rows.push(checkRow("warn", `backendIp is ${c.backendIp || "unset"}, which sends friends back to their own PC. Set it to ${c.lanIp || "your LAN IP"}, or your public IP for internet play.`));
+  if (LOOPBACK(c.backendIp))
+    rows.push(
+      checkRow(
+        "warn",
+        `backendIp is ${c.backendIp || "unset"}, which sends friends back to their own PC. Set it to ${c.lanIp || "your LAN IP"}, or your public IP for internet play.`,
+      ),
+    );
   else rows.push(checkRow("ok", `backendIp is ${c.backendIp}.`));
   if (!c.lanIp) rows.push(checkRow("bad", "No LAN address found. Is this PC on a network?"));
   else if (!state.status?.portOpen) rows.push(checkRow("warn", "Start the server to test the port."));
@@ -338,9 +454,11 @@ $("connCheck").onclick = async () => {
     $("connCheck").disabled = true;
     const ok = await invoke("check_reach", { addr: `${c.lanIp}:${c.port}` }).catch(() => false);
     $("connCheck").disabled = false;
-    rows.push(ok
-      ? checkRow("ok", `Port ${c.port} answers on ${c.lanIp}. Windows Firewall can still block other PCs, this test runs from here.`)
-      : checkRow("bad", `Port ${c.port} doesn't answer on ${c.lanIp}. Check the ip above, then restart the server.`));
+    rows.push(
+      ok
+        ? checkRow("ok", `Port ${c.port} answers on ${c.lanIp}. Windows Firewall can still block other PCs, this test runs from here.`)
+        : checkRow("bad", `Port ${c.port} doesn't answer on ${c.lanIp}. Check the ip above, then restart the server.`),
+    );
   }
   $("connChecks").innerHTML = rows.join("");
 };
@@ -367,13 +485,16 @@ function renderMode() {
   $("goSub").textContent = MODE_TEXT[state.mode];
   document.querySelector(".cmd-who").style.opacity = state.mode === "host" ? ".45" : "";
 }
-$$("#modeSeg button").forEach((b) => (b.onclick = () => {
-  if (state.status?.active) return toast("Stop first to change mode");
-  state.mode = b.dataset.mode;
-  state.settings.launchMode = state.mode;
-  saveSettings();
-  renderMode();
-}));
+$$("#modeSeg button").forEach(
+  (b) =>
+    (b.onclick = () => {
+      if (state.status?.active) return toast("Stop first to change mode");
+      state.mode = b.dataset.mode;
+      state.settings.launchMode = state.mode;
+      saveSettings();
+      renderMode();
+    }),
+);
 
 async function refreshProfiles() {
   state.profiles = await invoke("list_profiles");
@@ -390,21 +511,33 @@ function renderWho() {
   $("whoSub").textContent = p ? `Lv ${p.level} ${p.side || ""} · ${p.username}` : "Create one in the SPT launcher";
   const players = state.profiles.filter((x) => !x.headless);
   $("whoMenu").innerHTML = players.length
-    ? players.map((x) => `<div class="who-item ${x.id === state.profileId ? "sel" : ""}" data-id="${esc(x.id)}">
+    ? players
+        .map(
+          (x) => `<div class="who-item ${x.id === state.profileId ? "sel" : ""}" data-id="${esc(x.id)}">
         <div class="who-avatar">${esc(initials(x.nickname))}</div>
-        <div><b>${esc(x.nickname)}</b><small>Lv ${x.level} · ${esc(x.username)}${x.valid ? "" : " · incomplete"}</small></div></div>`).join("")
+        <div><b>${esc(x.nickname)}</b><small>Lv ${x.level} · ${esc(x.username)}${x.valid ? "" : " · incomplete"}</small></div></div>`,
+        )
+        .join("")
     : `<div class="who-empty">No player profiles on the host yet.</div>`;
-  $$(".who-item").forEach((el) => (el.onclick = () => {
-    state.profileId = el.dataset.id;
-    state.settings.lastProfile = state.profileId;
-    saveSettings();
-    $("whoMenu").hidden = true;
-    renderWho();
-    renderOperator();
-  }));
+  $$(".who-item").forEach(
+    (el) =>
+      (el.onclick = () => {
+        state.profileId = el.dataset.id;
+        state.settings.lastProfile = state.profileId;
+        saveSettings();
+        $("whoMenu").hidden = true;
+        renderWho();
+        renderOperator();
+      }),
+  );
 }
-$("whoBtn").onclick = (e) => { e.stopPropagation(); $("whoMenu").hidden = !$("whoMenu").hidden; };
-document.addEventListener("click", (e) => { if (!e.target.closest(".cmd-who")) $("whoMenu").hidden = true; });
+$("whoBtn").onclick = (e) => {
+  e.stopPropagation();
+  $("whoMenu").hidden = !$("whoMenu").hidden;
+};
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".cmd-who")) $("whoMenu").hidden = true;
+});
 
 function renderOperator() {
   const p = state.profiles.find((x) => x.id === state.profileId);
@@ -451,10 +584,25 @@ $("goBtn").onclick = async () => {
   if (state.settings.checkBeforeLaunch) {
     if (!(await preflight())) return;
   } else if (state.mode !== "host") {
-    if (!p.valid && !(await confirmBox("Profile looks incomplete", `${p.nickname} is missing parts of its save. The game may refuse it. Launch anyway?`, "Launch anyway"))) return;
+    if (
+      !p.valid &&
+      !(await confirmBox(
+        "Profile looks incomplete",
+        `${p.nickname} is missing parts of its save. The game may refuse it. Launch anyway?`,
+        "Launch anyway",
+      ))
+    )
+      return;
   }
   if (!state.settings.checkBeforeLaunch && state.mismatch?.length && state.settings.warnMismatch && state.mode !== "host") {
-    if (!(await confirmBox("Versions don't match", state.mismatch.join("\n") + "\n\nMismatched installs usually fail to connect.", "Launch anyway"))) return;
+    if (
+      !(await confirmBox(
+        "Versions don't match",
+        state.mismatch.join("\n") + "\n\nMismatched installs usually fail to connect.",
+        "Launch anyway",
+      ))
+    )
+      return;
   }
   await call("launch", { mode: state.mode, profile: state.mode === "host" ? null : state.profileId }).catch(() => {});
   pollStatus();
@@ -465,13 +613,23 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 $("btnRestartHl").onclick = async () => {
   const n = hlRaids();
-  if (n && !(await confirmBox("Restart headless?", `${plural(n, "raid")} running on the headless will end for everyone in them. The server and connected players stay up.`, "Restart headless"))) return;
+  if (
+    n &&
+    !(await confirmBox(
+      "Restart headless?",
+      `${plural(n, "raid")} running on the headless will end for everyone in them. The server and connected players stay up.`,
+      "Restart headless",
+    ))
+  )
+    return;
   await call("restart_headless").catch(() => {});
   toast("Restarting headless");
 };
 $("btnRestartSrv").onclick = async () => {
   const players = state.lobby?.players?.length || 0;
-  const who = players ? `${plural(players, "connected player")} (your game included) will be disconnected` : "Anyone connected, your game included, will be disconnected";
+  const who = players
+    ? `${plural(players, "connected player")} (your game included) will be disconnected`
+    : "Anyone connected, your game included, will be disconnected";
   const body = `${who}. The headless goes down too and comes back once the server is up again, so raids it hosts will end.`;
   if (!(await confirmBox("Restart the server?", body, "Restart server"))) return;
   state.expectSrvExit = true;
@@ -486,7 +644,11 @@ $("btnStartGame").onclick = async () => {
 
 async function pollStatus() {
   let s;
-  try { s = await invoke("status"); } catch { return; }
+  try {
+    s = await invoke("status");
+  } catch {
+    return;
+  }
   const prev = state.status;
   state.status = s;
   // a stack we started lost its server without being told to
@@ -495,7 +657,11 @@ async function pollStatus() {
   }
   if (s.server.running || !s.active) state.expectSrvExit = false;
 
-  for (const [key, node] of [["server", "nodeServer"], ["headless", "nodeHeadless"], ["game", "nodeGame"]]) {
+  for (const [key, node] of [
+    ["server", "nodeServer"],
+    ["headless", "nodeHeadless"],
+    ["game", "nodeGame"],
+  ]) {
     const p = s[key];
     const h = state.hist[key];
     h.push(p.running ? p.ram : 0);
@@ -528,7 +694,13 @@ async function pollStatus() {
   go.classList.toggle("running", s.active);
   go.classList.toggle("busy", busy);
   $("goLabel").textContent = s.active ? "STOP" : "LAUNCH";
-  $("goSub").textContent = s.active ? (booting ? `${stageText} · ${meta}` : busy ? s.stage + "…" : MODE_TEXT[s.mode] + " running") : MODE_TEXT[state.mode];
+  $("goSub").textContent = s.active
+    ? booting
+      ? `${stageText} · ${meta}`
+      : busy
+        ? s.stage + "…"
+        : MODE_TEXT[s.mode] + " running"
+    : MODE_TEXT[state.mode];
   $("goFill").style.width = s.active ? prog + "%" : "0";
   $("whoBtn").classList.toggle("locked", s.active);
 
@@ -549,7 +721,8 @@ async function pollStatus() {
 function bootInfo(s) {
   const booting = s.active && s.progress < 100 && s.bootElapsed != null && !s.portOpen;
   if (!booting) return { booting, stageText: s.stage, prog: s.progress, meta: s.progress + "%" };
-  const e = s.bootElapsed, x = s.bootExpect;
+  const e = s.bootElapsed,
+    x = s.bootExpect;
   return {
     booting,
     stageText: state.bootPhase || "Booting server",
@@ -559,15 +732,29 @@ function bootInfo(s) {
 }
 
 function paintNode(el, p, key, s) {
-  const starting = s.active && !p.running && s.progress < 100 &&
-    ((key === "server" && s.mode !== "join") || (key === "headless" && s.mode !== "join" && s.progress >= 65) || (key === "game" && s.mode !== "host" && s.progress >= 85));
+  const starting =
+    s.active &&
+    !p.running &&
+    s.progress < 100 &&
+    ((key === "server" && s.mode !== "join") ||
+      (key === "headless" && s.mode !== "join" && s.progress >= 65) ||
+      (key === "game" && s.mode !== "host" && s.progress >= 85));
   const serverWaiting = key === "server" && p.running && !s.portOpen;
   el.classList.toggle("on", p.running && p.owned && !serverWaiting);
   el.classList.toggle("ext", p.running && !p.owned);
   el.classList.toggle("wait", starting || serverWaiting);
   el.classList.toggle("off", !p.running && !starting);
-  el.querySelector(".node-state").textContent =
-    serverWaiting ? (bootInfo(s).booting ? `Booting · ${bootInfo(s).meta}` : "Booting…") : starting ? "Starting…" : p.running ? (p.owned ? "Online" : "Running elsewhere") : "Offline";
+  el.querySelector(".node-state").textContent = serverWaiting
+    ? bootInfo(s).booting
+      ? `Booting · ${bootInfo(s).meta}`
+      : "Booting…"
+    : starting
+      ? "Starting…"
+      : p.running
+        ? p.owned
+          ? "Online"
+          : "Running elsewhere"
+        : "Offline";
   el.querySelector(".v-up").textContent = p.running ? dur(p.uptime) : "-";
   el.querySelector(".v-cpu").textContent = p.running ? Math.round(p.cpu) + "%" : "-";
   el.querySelector(".v-ram").textContent = p.running ? bytes(p.ram) : "-";
@@ -576,7 +763,9 @@ function paintNode(el, p, key, s) {
 function drawSpark(svg, raw) {
   const n = 60;
   // pad with the oldest sample so a fresh process draws a flat line, not a stub
-  const data = Array(n - raw.length).fill(raw[0] || 0).concat(raw);
+  const data = Array(n - raw.length)
+    .fill(raw[0] || 0)
+    .concat(raw);
   const max = Math.max(...data, 1);
   const min = Math.min(...data.filter((v) => v > 0), max) * 0.85;
   const scale = (v) => (v <= 0 ? 32 : 30 - ((v - min) / Math.max(max - min, 1)) * 24);
@@ -590,7 +779,11 @@ function drawSpark(svg, raw) {
 
 async function pollLobby() {
   if (!state.status?.portOpen) return renderLobby(null);
-  try { renderLobby(await invoke("lobby", { session: state.profileId })); } catch { renderLobby(null); }
+  try {
+    renderLobby(await invoke("lobby", { session: state.profileId }));
+  } catch {
+    renderLobby(null);
+  }
 }
 
 function renderLobby(l) {
@@ -603,27 +796,31 @@ function renderLobby(l) {
   $("onlineCount").textContent = players.length;
 
   $("raidList").innerHTML = raids.length
-    ? raids.map((r) => {
-        const cls = r.status === 0 ? "loading" : r.status === 2 ? "done" : "";
-        const st = ["Loading", "In raid", "Finished"][r.status] || "Unknown";
-        return `<div class="raid ${cls}">
+    ? raids
+        .map((r) => {
+          const cls = r.status === 0 ? "loading" : r.status === 2 ? "done" : "";
+          const st = ["Loading", "In raid", "Finished"][r.status] || "Unknown";
+          return `<div class="raid ${cls}">
           <div class="raid-count">${r.players}<small>${r.players === 1 ? "player" : "players"}</small></div>
           <b>${esc(mapName(r.location))}</b>
           <div class="raid-meta">Started by ${esc(r.host || "?")}</div>
           <div class="raid-tags"><span class="tag ${r.status === 1 ? "live" : ""}">${st}</span><span class="tag">${r.side === 1 ? "Scav" : "PMC"}</span>${r.headless ? '<span class="tag hl">Headless hosted</span>' : ""}</div>
         </div>`;
-      }).join("")
+        })
+        .join("")
     : `<div class="empty"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${l?.online ? "No raids running." : "Start the server to see raids."}</div>`;
 
   $("playerList").innerHTML = players.length
-    ? players.map((p) => {
-        const inRaid = p.activity === 1;
-        const where = inRaid && p.location ? " · " + mapName(p.location) : "";
-        const since = p.since ? " · " + dur(Math.max(0, Math.floor(Date.now() / 1000 - p.since))).split(" ")[0] : "";
-        return `<div class="player"><div class="who-avatar">${esc(initials(p.nickname))}</div>
+    ? players
+        .map((p) => {
+          const inRaid = p.activity === 1;
+          const where = inRaid && p.location ? " · " + mapName(p.location) : "";
+          const since = p.since ? " · " + dur(Math.max(0, Math.floor(Date.now() / 1000 - p.since))).split(" ")[0] : "";
+          return `<div class="player"><div class="who-avatar">${esc(initials(p.nickname))}</div>
           <div class="p-name"><b>${esc(p.nickname)}</b><small>Level ${p.level}</small></div>
           <span class="act ${inRaid ? "raid" : ""}">${ACTIVITY[p.activity] || "Unknown"}${esc(where)}${since}</span></div>`;
-      }).join("")
+        })
+        .join("")
     : `<div class="empty"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.6-4.8-4-5.6"/></svg>${l?.online ? "Nobody online yet." : "Nobody online."}</div>`;
 }
 
@@ -644,15 +841,20 @@ function watchLine(stream, text) {
 }
 
 function watchPlayers(l) {
-  if (!l?.online) { state.seenPlayers = null; return; }
+  if (!l?.online) {
+    state.seenPlayers = null;
+    return;
+  }
   const me = state.profiles.find((p) => p.id === state.profileId)?.nickname;
   const now = new Set((l.players || []).map((p) => p.nickname).filter((n) => n && n !== me));
   // the first list after the server comes up is a baseline, not a wave of joins
   if (state.seenPlayers) {
     const joined = [...now].filter((n) => !state.seenPlayers.has(n));
     const left = [...state.seenPlayers].filter((n) => !now.has(n));
-    if (joined.length) alertUser("players", joined.length === 1 ? `${joined[0]} connected` : `${joined.length} players connected`, joined.join(", "));
-    if (left.length) alertUser("players", left.length === 1 ? `${left[0]} disconnected` : `${left.length} players disconnected`, left.join(", "));
+    if (joined.length)
+      alertUser("players", joined.length === 1 ? `${joined[0]} connected` : `${joined.length} players connected`, joined.join(", "));
+    if (left.length)
+      alertUser("players", left.length === 1 ? `${left[0]} disconnected` : `${left.length} players disconnected`, left.join(", "));
   }
   state.seenPlayers = now;
 }
@@ -674,7 +876,10 @@ function phaseOf(text) {
   let t = text.replace(/^\[\d{4}-[^\]]*\]/, "").replace(/^\[(information|warning|error|debug|trace|critical|fatal)\]/i, "");
   let ns = null;
   const m = t.match(/^\[([\w.]+)\]\s*/);
-  if (m && m[1].includes(".")) { ns = m[1]; t = t.slice(m[0].length); }
+  if (m && m[1].includes(".")) {
+    ns = m[1];
+    t = t.slice(m[0].length);
+  }
   t = t.trim();
   let x;
   if (!t || /^[│┌└─]/.test(t) || ns?.includes("Watermark")) return null;
@@ -710,10 +915,21 @@ const curRun = (i) => state.runs[i][state.runs[i].length - 1].id;
 async function pollLogs() {
   for (let i = 0; i < 3; i++) {
     let c;
-    try { c = await invoke("logs_since", { stream: i, after: state.logSeq[i] }); } catch { continue; }
+    try {
+      c = await invoke("logs_since", { stream: i, after: state.logSeq[i] });
+    } catch {
+      continue;
+    }
     if (c.reset) {
-      state.logs[i] = []; state.logErr[i] = 0; state.logSeen[i] = 0; state.logBad[i] = state.badSeen[i] = 0; resetRuns(i);
-      if (i === state.stream && state.page === "console") { renderRuns(); renderLog(true); }
+      state.logs[i] = [];
+      state.logErr[i] = 0;
+      state.logSeen[i] = 0;
+      state.logBad[i] = state.badSeen[i] = 0;
+      resetRuns(i);
+      if (i === state.stream && state.page === "console") {
+        renderRuns();
+        renderLog(true);
+      }
     }
     if (!c.lines.length) continue;
     state.logSeq[i] = c.lines[c.lines.length - 1][0];
@@ -742,7 +958,10 @@ async function pollLogs() {
       else appendLog(added);
     }
   }
-  if (state.page === "console") { state.logSeen[state.stream] = state.logErr[state.stream]; state.badSeen[state.stream] = state.logBad[state.stream]; }
+  if (state.page === "console") {
+    state.logSeen[state.stream] = state.logErr[state.stream];
+    state.badSeen[state.stream] = state.logBad[state.stream];
+  }
   updateBadges();
 }
 
@@ -813,18 +1032,18 @@ function renderLog(scrollEnd) {
   const view = $("logView");
   const lines = shownLines().slice(-4000);
   const total = state.logs[state.stream].filter(inRun).length;
-  view.innerHTML = lines.length
-    ? lines.map(lineHtml).join("")
-    : `<div class="log-empty">${total ? "No lines match." : emptyText()}</div>`;
+  view.innerHTML = lines.length ? lines.map(lineHtml).join("") : `<div class="log-empty">${total ? "No lines match." : emptyText()}</div>`;
   $("logStats").textContent = `${lines.filter((l) => l.lvl !== "gap").length} of ${total} lines`;
   if (scrollEnd || $("logFollow").checked) view.scrollTop = view.scrollHeight;
 }
 
 function emptyText() {
   if (!["current", "all"].includes(state.runView[state.stream])) return "Nothing logged in that run.";
-  return ["Server output shows up here once it's launched from Fika Hub.",
-          "Headless BepInEx log. Waiting for new lines.",
-          "Your game's BepInEx log. Waiting for new lines."][state.stream];
+  return [
+    "Server output shows up here once it's launched from Fika Hub.",
+    "Headless BepInEx log. Waiting for new lines.",
+    "Your game's BepInEx log. Waiting for new lines.",
+  ][state.stream];
 }
 
 function appendLog(added) {
@@ -868,33 +1087,54 @@ function setStream(i) {
   updateBadges();
 }
 $$(".tab").forEach((t) => (t.onclick = () => setStream(+t.dataset.stream)));
-$$("#levelSeg button").forEach((b) => (b.onclick = () => {
-  state.level = b.dataset.level;
-  saveUi();
-  $$("#levelSeg button").forEach((x) => x.classList.toggle("on", x === b));
+$$("#levelSeg button").forEach(
+  (b) =>
+    (b.onclick = () => {
+      state.level = b.dataset.level;
+      saveUi();
+      $$("#levelSeg button").forEach((x) => x.classList.toggle("on", x === b));
+      renderLog(true);
+    }),
+);
+$("logRun").onchange = () => {
+  state.runView[state.stream] = $("logRun").value;
   renderLog(true);
-}));
-$("logRun").onchange = () => { state.runView[state.stream] = $("logRun").value; renderLog(true); };
+};
 $("logQuiet").onchange = () => renderLog(true);
 let searchT;
-$("logSearch").oninput = () => { clearTimeout(searchT); searchT = setTimeout(() => renderLog(true), 120); };
+$("logSearch").oninput = () => {
+  clearTimeout(searchT);
+  searchT = setTimeout(() => renderLog(true), 120);
+};
 $("logWrap").onchange = () => $("logView").classList.toggle("wrap", $("logWrap").checked);
 $("logView").onscroll = () => {
   const v = $("logView");
   if (v.scrollHeight - v.scrollTop - v.clientHeight < 40) $("logJump").hidden = true;
 };
-$("logJump").onclick = () => { $("logView").scrollTop = $("logView").scrollHeight; $("logJump").hidden = true; };
+$("logJump").onclick = () => {
+  $("logView").scrollTop = $("logView").scrollHeight;
+  $("logJump").hidden = true;
+};
 $("logCopy").onclick = async () => {
-  const t = shownLines().filter((l) => l.lvl !== "gap").map((l) => l.text).join("\n");
+  const t = shownLines()
+    .filter((l) => l.lvl !== "gap")
+    .map((l) => l.text)
+    .join("\n");
   if (!t) return toast("Nothing to copy");
-  try { await navigator.clipboard.writeText(t); toast("Copied what's shown"); } catch { toast("Clipboard unavailable", true); }
+  try {
+    await navigator.clipboard.writeText(t);
+    toast("Copied what's shown");
+  } catch {
+    toast("Clipboard unavailable", true);
+  }
 };
 $("logSave").onclick = async () => {
   // always the raw stream: filters are for reading, saved logs are for support
   const t = state.logs[state.stream].map((l) => l.text).join("\n");
   if (!t) return toast("Nothing to save");
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-  if (await call("save_text", { name: `${STREAM_NAMES[state.stream]}-${stamp}.log`, text: t }).catch(() => false)) toast("Saved the full log");
+  if (await call("save_text", { name: `${STREAM_NAMES[state.stream]}-${stamp}.log`, text: t }).catch(() => false))
+    toast("Saved the full log");
 };
 $("logClear").onclick = () => {
   invoke("clear_logs", { stream: state.stream });
@@ -911,7 +1151,9 @@ $("logOpen").onclick = () => call("open_folder", { which: ["host", "headless-log
 
 async function loadConfigRoots() {
   const roots = await invoke("config_roots");
-  $("cfgRoots").innerHTML = roots.map((r) => `<button data-root="${r.key}" ${r.exists ? "" : "disabled"} title="${esc(r.path)}">${esc(r.label)}</button>`).join("");
+  $("cfgRoots").innerHTML = roots
+    .map((r) => `<button data-root="${r.key}" ${r.exists ? "" : "disabled"} title="${esc(r.path)}">${esc(r.label)}</button>`)
+    .join("");
   $$("#cfgRoots button").forEach((b) => (b.onclick = () => selectRoot(b.dataset.root)));
   const first = roots.find((r) => r.exists && r.key === state.cfg.root) || roots.find((r) => r.exists);
   if (first) selectRoot(first.key);
@@ -943,21 +1185,34 @@ function renderCfgList() {
   const q = $("cfgSearch").value.trim().toLowerCase();
   const list = state.cfg.entries.filter((e) => !q || (e.group + " " + e.rel).toLowerCase().includes(q));
   const byRel = new Map(state.cfg.entries.map((e) => [e.rel, e]));
-  const pick = (keys) => keys
-    .filter((k) => k.startsWith(state.cfg.root + "|"))
-    .map((k) => byRel.get(k.slice(state.cfg.root.length + 1)))
-    .filter(Boolean);
+  const pick = (keys) =>
+    keys
+      .filter((k) => k.startsWith(state.cfg.root + "|"))
+      .map((k) => byRel.get(k.slice(state.cfg.root.length + 1)))
+      .filter(Boolean);
   const pinned = q ? [] : pick(state.settings.pinnedConfigs || []);
-  const recent = q ? [] : pick(state.settings.recentConfigs || []).filter((e) => !isPinned(e.rel)).slice(0, 5);
+  const recent = q
+    ? []
+    : pick(state.settings.recentConfigs || [])
+        .filter((e) => !isPinned(e.rel))
+        .slice(0, 5);
 
   const groups = {};
   for (const e of list) (groups[e.group] ||= []).push(e);
-  const head = [["Pinned", pinned], ["Recent", recent]]
+  const head = [
+    ["Pinned", pinned],
+    ["Recent", recent],
+  ]
     .filter(([, items]) => items.length)
     .map(([g, items]) => `<div class="cfg-group quick-group"><b>${g}</b>${items.map((e) => cfgItem(e, true)).join("")}</div>`)
     .join("");
   $("cfgList").innerHTML = list.length
-    ? head + Object.entries(groups).map(([g, items]) => `<div class="cfg-group"><b title="${esc(g)}">${esc(g)}</b>${items.map((e) => cfgItem(e, false)).join("")}</div>`).join("")
+    ? head +
+      Object.entries(groups)
+        .map(
+          ([g, items]) => `<div class="cfg-group"><b title="${esc(g)}">${esc(g)}</b>${items.map((e) => cfgItem(e, false)).join("")}</div>`,
+        )
+        .join("")
     : `<div class="empty">${state.cfg.entries.length ? "No match." : "No config files found."}</div>`;
   $$(".cfg-item").forEach((el) => (el.onclick = () => openConfig(el.dataset.rel)));
 }
@@ -991,8 +1246,11 @@ async function openConfig(rel) {
   if (state.cfg.open !== rel && !(await leaveDirty())) return;
   const root = state.cfg.root;
   let doc;
-  try { doc = await invoke("config_read", { root, rel }); }
-  catch (e) { return cfgStatus("bad", String(e)); }
+  try {
+    doc = await invoke("config_read", { root, rel });
+  } catch (e) {
+    return cfgStatus("bad", String(e));
+  }
   state.cfg.open = rel;
   state.cfg.openRoot = root;
   const key = cfgKey(rel);
@@ -1050,7 +1308,14 @@ async function validateCfg() {
     setErrLine(null);
   } catch (e) {
     const m = String(e).match(/line (\d+), column (\d+)/);
-    cfgStatus("bad", m ? `Line ${m[1]}: ${String(e).replace(/^JSON error at line \d+, column \d+: /, "").replace(/ at line \d+ column \d+$/, "")}` : String(e));
+    cfgStatus(
+      "bad",
+      m
+        ? `Line ${m[1]}: ${String(e)
+            .replace(/^JSON error at line \d+, column \d+: /, "")
+            .replace(/ at line \d+ column \d+$/, "")}`
+        : String(e),
+    );
     setErrLine(m ? +m[1] : null);
   }
 }
@@ -1068,18 +1333,28 @@ $("cfgText").onscroll = syncScroll;
 $("cfgText").onkeydown = (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
-    const ta = e.target, s = ta.selectionStart;
+    const ta = e.target,
+      s = ta.selectionStart;
     ta.setRangeText("    ", s, ta.selectionEnd, "end");
     ta.oninput();
   }
 };
-$("cfgRevert").onclick = () => { if (state.cfg.readOnly) return; $("cfgText").value = state.cfg.original; $("cfgText").oninput(); };
+$("cfgRevert").onclick = () => {
+  if (state.cfg.readOnly) return;
+  $("cfgText").value = state.cfg.original;
+  $("cfgText").oninput();
+};
 $("cfgOpenDir").onclick = () => call("open_folder", { which: state.cfg.openRoot + "|" + state.cfg.open }).catch(() => {});
 async function saveConfig() {
   if (!isDirty() || state.cfg.readOnly) return;
   try {
     const text = $("cfgText").value;
-    state.cfg.stamp = await invoke("config_save", { root: state.cfg.openRoot, rel: state.cfg.open, text: state.cfg.crlf ? text.replace(/\n/g, "\r\n") : text, stamp: state.cfg.stamp });
+    state.cfg.stamp = await invoke("config_save", {
+      root: state.cfg.openRoot,
+      rel: state.cfg.open,
+      text: state.cfg.crlf ? text.replace(/\n/g, "\r\n") : text,
+      stamp: state.cfg.stamp,
+    });
     state.cfg.original = text;
     state.cfg.base = plainJson(text);
     paintChanges();
@@ -1087,7 +1362,10 @@ async function saveConfig() {
     updateCfgButtons();
     validateCfg();
     toast("Saved, backup kept");
-  } catch (e) { cfgStatus("bad", String(e)); toast("Not saved", true); }
+  } catch (e) {
+    cfgStatus("bad", String(e));
+    toast("Not saved", true);
+  }
 }
 $("cfgSave").onclick = saveConfig;
 
@@ -1099,19 +1377,29 @@ const isIniFile = () => /\.(cfg|ini|conf|properties|toml)$/i.test(state.cfg.open
 // null when the text isn't plain JSON (comments, errors), since the form would rewrite it
 function plainJson(text) {
   if (!isJsonFile()) return null;
-  try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; }
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
 }
 // Number keys get reordered, duplicate keys merged and huge integers rounded by JSON.parse, so the form stays off for those.
 // 1.0 vs 1 is fine, it's the same value to the mod.
-const canon = (t) => t.replace(/("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\s+/g, (m, str, num) =>
-  str ? str : num ? (/^-?\d+$/.test(num) && !Number.isSafeInteger(Number(num)) ? "#BIG" + num : String(Number(num))) : "");
+const canon = (t) =>
+  t.replace(/("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\s+/g, (m, str, num) =>
+    str ? str : num ? (/^-?\d+$/.test(num) && !Number.isSafeInteger(Number(num)) ? "#BIG" + num : String(Number(num))) : "",
+  );
 function roundTrips(text, v) {
   return canon(text) === JSON.stringify(v);
 }
 
-const JSON_TOK = /("(?:\\.|[^"\\\n])*")(\s*:)?|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\],:])/g;
+const JSON_TOK =
+  /("(?:\\.|[^"\\\n])*")(\s*:)?|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\],:])/g;
 function hlJson(t) {
-  let out = "", last = 0, m;
+  let out = "",
+    last = 0,
+    m;
   JSON_TOK.lastIndex = 0;
   while ((m = JSON_TOK.exec(t))) {
     out += esc(t.slice(last, m.index));
@@ -1125,17 +1413,23 @@ function hlJson(t) {
   return out + esc(t.slice(last));
 }
 function hlIni(t) {
-  return t.split("\n").map((l) => {
-    if (/^\s*[#;]/.test(l)) return `<span class="c">${esc(l)}</span>`;
-    if (/^\s*\[.*\]\s*$/.test(l)) return `<span class="sec">${esc(l)}</span>`;
-    const m = l.match(/^(\s*[^=:\n]+?)(\s*[=:]\s*)(.*)$/);
-    if (!m) return esc(l);
-    const v = /^(true|false)$/i.test(m[3].trim()) ? "b" : /^-?[\d.]+$/.test(m[3].trim()) ? "n" : "s";
-    return `<span class="k">${esc(m[1])}</span><span class="p">${esc(m[2])}</span><span class="${v}">${esc(m[3])}</span>`;
-  }).join("\n");
+  return t
+    .split("\n")
+    .map((l) => {
+      if (/^\s*[#;]/.test(l)) return `<span class="c">${esc(l)}</span>`;
+      if (/^\s*\[.*\]\s*$/.test(l)) return `<span class="sec">${esc(l)}</span>`;
+      const m = l.match(/^(\s*[^=:\n]+?)(\s*[=:]\s*)(.*)$/);
+      if (!m) return esc(l);
+      const v = /^(true|false)$/i.test(m[3].trim()) ? "b" : /^-?[\d.]+$/.test(m[3].trim()) ? "n" : "s";
+      return `<span class="k">${esc(m[1])}</span><span class="p">${esc(m[2])}</span><span class="${v}">${esc(m[3])}</span>`;
+    })
+    .join("\n");
 }
 let hlT;
-function scheduleHl() { clearTimeout(hlT); hlT = setTimeout(paintHl, 40); }
+function scheduleHl() {
+  clearTimeout(hlT);
+  hlT = setTimeout(paintHl, 40);
+}
 function paintHl() {
   if (state.cfgView !== "raw") return;
   const t = $("cfgText").value;
@@ -1174,7 +1468,8 @@ const lineOf = (t, i) => t.slice(0, i).split("\n").length;
 // "bots › bosses › 2" for wherever the caret sits
 function crumbAt(t, pos) {
   const stack = [];
-  let i = 0, pendingKey = null;
+  let i = 0,
+    pendingKey = null;
   while (i < pos) {
     const c = t[i];
     if (c === '"') {
@@ -1187,22 +1482,31 @@ function crumbAt(t, pos) {
       i = j + 1;
       continue;
     }
-    if (c === "/" && t[i + 1] === "/") { while (i < pos && t[i] !== "\n") i++; continue; }
+    if (c === "/" && t[i + 1] === "/") {
+      while (i < pos && t[i] !== "\n") i++;
+      continue;
+    }
     if (c === "{") stack.push({ obj: true, key: null });
     else if (c === "[") stack.push({ obj: false, idx: 0 });
     else if (c === "}" || c === "]") stack.pop();
     else if (c === "," && stack.length && !stack[stack.length - 1].obj) stack[stack.length - 1].idx++;
     i++;
   }
-  return stack.map((f) => (f.obj ? f.key : String(f.idx))).filter((x) => x != null).join(" › ");
+  return stack
+    .map((f) => (f.obj ? f.key : String(f.idx)))
+    .filter((x) => x != null)
+    .join(" › ");
 }
 let crumbT;
 function updatePos() {
   clearTimeout(crumbT);
   crumbT = setTimeout(() => {
-    const ta = $("cfgText"), t = ta.value, p = ta.selectionStart;
+    const ta = $("cfgText"),
+      t = ta.value,
+      p = ta.selectionStart;
     const before = t.slice(0, p).split("\n");
-    $("cfgPos").textContent = state.cfg.open && state.cfgView === "raw" ? `Ln ${before.length}, Col ${before[before.length - 1].length + 1}` : "";
+    $("cfgPos").textContent =
+      state.cfg.open && state.cfgView === "raw" ? `Ln ${before.length}, Col ${before[before.length - 1].length + 1}` : "";
     $("cfgCrumb").textContent = state.cfg.open && state.cfgView === "raw" && isJsonFile() && t.length < 600000 ? crumbAt(t, p) : "";
   }, 60);
 }
@@ -1211,7 +1515,9 @@ function updatePos() {
 $("cfgFormat").onclick = () => {
   const t = $("cfgText").value;
   let v;
-  try { v = JSON.parse(t); } catch {
+  try {
+    v = JSON.parse(t);
+  } catch {
     return toast(state.cfg.errLine ? `Fix line ${state.cfg.errLine} first` : "This file has comments, Format would remove them", true);
   }
   if (!roundTrips(t, v)) return toast("Format would reorder keys or rewrite numbers in this file, so it's off here", true);
@@ -1229,11 +1535,20 @@ function indentOf(t) {
 
 function runFind(step) {
   const q = $("cfgFind").value.toLowerCase();
-  const t = $("cfgText").value, low = t.toLowerCase();
-  if (!q) { state.cfg.findLine = null; $("cfgFindCount").textContent = ""; return syncScroll(); }
+  const t = $("cfgText").value,
+    low = t.toLowerCase();
+  if (!q) {
+    state.cfg.findLine = null;
+    $("cfgFindCount").textContent = "";
+    return syncScroll();
+  }
   const hits = [];
   for (let i = low.indexOf(q); i !== -1 && hits.length < 5000; i = low.indexOf(q, i + q.length)) hits.push(i);
-  if (!hits.length) { state.cfg.findLine = null; $("cfgFindCount").textContent = "No matches"; return syncScroll(); }
+  if (!hits.length) {
+    state.cfg.findLine = null;
+    $("cfgFindCount").textContent = "No matches";
+    return syncScroll();
+  }
   const ta = $("cfgText");
   const from = step ? ta.selectionStart + (step > 0 ? 1 : -1) : ta.selectionStart;
   let n = step < 0 ? hits.findLastIndex((h) => h < from) : hits.findIndex((h) => h >= from);
@@ -1245,20 +1560,33 @@ function runFind(step) {
 }
 $("cfgFind").oninput = () => runFind(0);
 $("cfgFind").onkeydown = (e) => {
-  if (e.key === "Enter") { e.preventDefault(); runFind(e.shiftKey ? -1 : 1); }
-  if (e.key === "Escape") { const ta = $("cfgText"); ta.focus(); state.cfg.findLine = null; syncScroll(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    runFind(e.shiftKey ? -1 : 1);
+  }
+  if (e.key === "Escape") {
+    const ta = $("cfgText");
+    ta.focus();
+    state.cfg.findLine = null;
+    syncScroll();
+  }
 };
 
 // ---- form view ----
 const getAt = (o, path) => path.reduce((v, k) => (v == null ? undefined : v[k]), o);
-function setAt(o, path, val) { getAt(o, path.slice(0, -1))[path[path.length - 1]] = val; }
+function setAt(o, path, val) {
+  getAt(o, path.slice(0, -1))[path[path.length - 1]] = val;
+}
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isPrimArr = (v) => Array.isArray(v) && v.every((x) => x === null || typeof x !== "object");
 
 function formCommit() {
   const t = $("cfgText").value;
   const out = JSON.stringify(state.cfg.model, null, indentOf(state.cfg.original)) + (state.cfg.original.endsWith("\n") ? "\n" : "");
-  if (out !== t) { $("cfgText").value = out; cfgTextChanged(true); }
+  if (out !== t) {
+    $("cfgText").value = out;
+    cfgTextChanged(true);
+  }
 }
 
 function countChanges(a, b) {
@@ -1271,14 +1599,20 @@ function countChanges(a, b) {
   return same(a, b) ? 0 : 1;
 }
 function paintChanges() {
-  if (!state.cfg.model || !state.cfg.base) { $("cfgChanges").textContent = ""; return; }
+  if (!state.cfg.model || !state.cfg.base) {
+    $("cfgChanges").textContent = "";
+    return;
+  }
   const n = countChanges(state.cfg.base, state.cfg.model);
   $("cfgChanges").textContent = n ? plural(n, "change") + " not saved" : "";
 }
 
 function renderForm() {
   const box = $("cfgForm");
-  if (!state.cfg.open) { box.innerHTML = `<div class="empty">Pick a config on the left.</div>`; return; }
+  if (!state.cfg.open) {
+    box.innerHTML = `<div class="empty">Pick a config on the left.</div>`;
+    return;
+  }
   const text = $("cfgText").value;
   const parsed = state.cfg.readOnly ? null : plainJson(text);
   const lossy = parsed && !roundTrips(text, parsed);
@@ -1286,11 +1620,18 @@ function renderForm() {
   state.cfg.model = model;
   $("cfgKeySearch").disabled = !model;
   if (!model) {
-    const why = state.cfg.readOnly ? ["This file is read-only here.", state.cfg.readOnly]
-      : lossy ? ["This file has to stay as written.", "It has number keys, repeated keys or very large numbers that the form would reorder or round, so it's edited as text."]
-      : !isJsonFile() ? ["Form view is for JSON files.", "This one is edited as text."]
-      : state.cfg.errLine ? [`The JSON has an error on line ${state.cfg.errLine}.`, "Fix it in Raw, then come back."]
-      : ["This file has comments.", "The form would strip them on save, so it's edited as text."];
+    const why = state.cfg.readOnly
+      ? ["This file is read-only here.", state.cfg.readOnly]
+      : lossy
+        ? [
+            "This file has to stay as written.",
+            "It has number keys, repeated keys or very large numbers that the form would reorder or round, so it's edited as text.",
+          ]
+        : !isJsonFile()
+          ? ["Form view is for JSON files.", "This one is edited as text."]
+          : state.cfg.errLine
+            ? [`The JSON has an error on line ${state.cfg.errLine}.`, "Fix it in Raw, then come back."]
+            : ["This file has comments.", "The form would strip them on save, so it's edited as text."];
     box.innerHTML = `<div class="f-msg"><b>${esc(why[0])}</b><span>${esc(why[1])}</span><button class="ghost sm" id="fToRaw">Open in Raw</button></div>`;
     $("fToRaw").onclick = () => setCfgView("raw");
     paintChanges();
@@ -1300,17 +1641,21 @@ function renderForm() {
   box.innerHTML = "";
   if (q) {
     const hits = [];
-    walkLeaves(model, [], (path) => { if (path.join(".").toLowerCase().includes(q)) hits.push(path); });
+    walkLeaves(model, [], (path) => {
+      if (path.join(".").toLowerCase().includes(q)) hits.push(path);
+    });
     hits.slice(0, 300).forEach((p) => box.append(fRow(p, p.join(" › "), 0)));
     if (!hits.length) box.innerHTML = `<div class="empty">No keys match.</div>`;
-    else if (hits.length > 300) box.insertAdjacentHTML("beforeend", `<div class="f-hint">Showing 300 of ${hits.length}. Narrow the search.</div>`);
+    else if (hits.length > 300)
+      box.insertAdjacentHTML("beforeend", `<div class="f-hint">Showing 300 of ${hits.length}. Narrow the search.</div>`);
   } else {
     box.append(fChildren([], 0));
   }
   paintChanges();
 }
 function walkLeaves(v, path, fn) {
-  if (v && typeof v === "object" && !isPrimArr(v)) for (const k of Object.keys(v)) walkLeaves(v[k], [...path, Array.isArray(v) ? +k : k], fn);
+  if (v && typeof v === "object" && !isPrimArr(v))
+    for (const k of Object.keys(v)) walkLeaves(v[k], [...path, Array.isArray(v) ? +k : k], fn);
   else if (path.length) fn(path);
 }
 
@@ -1342,7 +1687,11 @@ function fSection(path, label, depth, openByDefault) {
   const paint = () => {
     sec.classList.toggle("open", isOpen());
     sec.querySelector("div")?.remove();
-    if (isOpen()) { const body = document.createElement("div"); body.append(fChildren(path, depth + 1)); sec.append(body); }
+    if (isOpen()) {
+      const body = document.createElement("div");
+      body.append(fChildren(path, depth + 1));
+      sec.append(body);
+    }
   };
   sec.firstChild.onclick = () => {
     const k = openByDefault ? key : "+" + key;
@@ -1363,8 +1712,13 @@ function fRow(path, label, depth) {
   lab.title = path.join(" › ");
   row.append(lab);
   const v = getAt(state.cfg.model, path);
-  const markChg = () => (lab.querySelector(".f-chg").hidden = !state.cfg.base || same(getAt(state.cfg.base, path), getAt(state.cfg.model, path)));
-  const set = (val) => { setAt(state.cfg.model, path, val); markChg(); formCommit(); };
+  const markChg = () =>
+    (lab.querySelector(".f-chg").hidden = !state.cfg.base || same(getAt(state.cfg.base, path), getAt(state.cfg.model, path)));
+  const set = (val) => {
+    setAt(state.cfg.model, path, val);
+    markChg();
+    formCommit();
+  };
 
   if (typeof v === "boolean") {
     row.insertAdjacentHTML("beforeend", `<label class="toggle"><input type="checkbox" ${v ? "checked" : ""}><span></span></label>`);
@@ -1376,7 +1730,10 @@ function fRow(path, label, depth) {
       inp.classList.toggle("bad", !Number.isFinite(n));
       if (Number.isFinite(n)) set(n);
     };
-    inp.onblur = () => { inp.value = String(getAt(state.cfg.model, path)); inp.classList.remove("bad"); };
+    inp.onblur = () => {
+      inp.value = String(getAt(state.cfg.model, path));
+      inp.classList.remove("bad");
+    };
     row.append(inp);
   } else if (typeof v === "string") {
     const inp = Object.assign(document.createElement("input"), { className: "f-in", value: v, spellcheck: false });
@@ -1395,10 +1752,17 @@ function fChips(path, set) {
   box.className = "f-chips";
   const paint = () => {
     const arr = getAt(state.cfg.model, path);
-    box.innerHTML = arr.map((x, i) => `<span class="f-chip"><span></span><button data-i="${i}" title="Remove">×</button></span>`).join("")
-      + `<input class="f-add" placeholder="+ add" spellcheck="false">`;
+    box.innerHTML =
+      arr.map((x, i) => `<span class="f-chip"><span></span><button data-i="${i}" title="Remove">×</button></span>`).join("") +
+      `<input class="f-add" placeholder="+ add" spellcheck="false">`;
     box.querySelectorAll(".f-chip > span").forEach((el, i) => (el.textContent = JSON.stringify(arr[i]).replace(/^"|"$/g, "")));
-    box.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => { set(arr.filter((_, i) => i !== +b.dataset.i)); paint(); }));
+    box.querySelectorAll("[data-i]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          set(arr.filter((_, i) => i !== +b.dataset.i));
+          paint();
+        }),
+    );
     const add = box.querySelector(".f-add");
     add.onkeydown = (e) => {
       if (e.key !== "Enter" || !add.value.trim()) return;
@@ -1410,8 +1774,18 @@ function fChips(path, set) {
       if (kind === "number") val = Number.isFinite(Number(raw)) ? Number(raw) : undefined;
       else if (kind === "boolean") val = /^(true|false)$/i.test(raw) ? raw.toLowerCase() === "true" : undefined;
       else if (kind === "string") val = raw;
-      else { try { val = JSON.parse(raw); if (val !== null && typeof val === "object") val = raw; } catch { val = raw; } }
-      if (val === undefined) { add.classList.add("bad"); return; }
+      else {
+        try {
+          val = JSON.parse(raw);
+          if (val !== null && typeof val === "object") val = raw;
+        } catch {
+          val = raw;
+        }
+      }
+      if (val === undefined) {
+        add.classList.add("bad");
+        return;
+      }
       set([...arr, val]);
       paint();
       box.querySelector(".f-add").focus();
@@ -1421,7 +1795,10 @@ function fChips(path, set) {
   return box;
 }
 let keyT;
-$("cfgKeySearch").oninput = () => { clearTimeout(keyT); keyT = setTimeout(renderForm, 150); };
+$("cfgKeySearch").oninput = () => {
+  clearTimeout(keyT);
+  keyT = setTimeout(renderForm, 150);
+};
 
 // ---- view switch ----
 state.cfgView = "form";
@@ -1437,7 +1814,10 @@ function setCfgView(v) {
 }
 function cfgRefresh() {
   if (state.cfgView === "form") renderForm();
-  else { paintHl(); updatePos(); }
+  else {
+    paintHl();
+    updatePos();
+  }
   updatePos();
 }
 $$("#cfgView button").forEach((b) => (b.onclick = () => setCfgView(b.dataset.view)));
@@ -1453,25 +1833,41 @@ async function runChecks(forLaunch) {
   $("checksLaunch").hidden = true;
   const profile = state.mode === "host" ? null : state.profileId;
   let list = [];
-  try { list = await invoke("health_check", { mode: state.mode, profile }); }
-  catch (e) { list = [{ level: "bad", title: String(e) }]; }
+  try {
+    list = await invoke("health_check", { mode: state.mode, profile });
+  } catch (e) {
+    list = [{ level: "bad", title: String(e) }];
+  }
   const bad = list.filter((c) => c.level === "bad").length;
   const warn = list.filter((c) => c.level === "warn").length;
   $("checksTitle").textContent = bad ? `${plural(bad, "problem")} found` : warn ? `Ready, ${plural(warn, "warning")}` : "All good";
   // problems first, the passing checks are just reassurance
   const order = { bad: 0, warn: 1, ok: 2 };
   list.sort((a, b) => order[a.level] - order[b.level]);
-  $("checkList").innerHTML = list.map((c, i) => `<div class="check-row ${c.level}"><span class="dot"></span>
+  $("checkList").innerHTML = list
+    .map(
+      (c, i) => `<div class="check-row ${c.level}"><span class="dot"></span>
       <div><b>${esc(c.title)}</b>${c.fix ? `<small>${esc(c.fix)}</small>` : ""}</div>
-      ${c.go ? `<button class="ghost sm" data-check-go="${c.go}">Open</button>` : "<span></span>"}</div>`).join("");
-  $$("[data-check-go]").forEach((b) => (b.onclick = () => { closeChecks(false); goto(b.dataset.checkGo); }));
+      ${c.go ? `<button class="ghost sm" data-check-go="${c.go}">Open</button>` : "<span></span>"}</div>`,
+    )
+    .join("");
+  $$("[data-check-go]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        closeChecks(false);
+        goto(b.dataset.checkGo);
+      }),
+  );
   $("checksLaunch").hidden = !forLaunch;
   return { bad, warn };
 }
 
 function closeChecks(launch) {
   $("checks").hidden = true;
-  if (checkResolve) { checkResolve(launch); checkResolve = null; }
+  if (checkResolve) {
+    checkResolve(launch);
+    checkResolve = null;
+  }
 }
 $("btnCheck").onclick = () => runChecks(false);
 $("checksClose").onclick = () => closeChecks(false);
@@ -1481,7 +1877,10 @@ $("checksRerun").onclick = () => runChecks(!$("checksLaunch").hidden);
 /// Resolves true when launch should go ahead. Only stops for real problems.
 async function preflight() {
   const { bad } = await runChecks(true);
-  if (!bad) { $("checks").hidden = true; return true; }
+  if (!bad) {
+    $("checks").hidden = true;
+    return true;
+  }
   return new Promise((r) => (checkResolve = r));
 }
 
@@ -1491,7 +1890,11 @@ $("btnHlPower").onclick = async () => {
   const s = state.status;
   if (s?.headless.owned) {
     const n = hlRaids();
-    if (n && !(await confirmBox("Stop headless?", `${plural(n, "raid")} running on the headless will end for everyone in them.`, "Stop headless"))) return;
+    if (
+      n &&
+      !(await confirmBox("Stop headless?", `${plural(n, "raid")} running on the headless will end for everyone in them.`, "Stop headless"))
+    )
+      return;
     await call("stop_headless").catch(() => {});
     toast("Headless stopped, it stays down until you start it");
   } else {
@@ -1514,8 +1917,12 @@ function paintHeadlessPower(s) {
 // ============================ history ============================
 
 const EVENT_TEXT = {
-  headless_crash: "headless crash", headless_restart: "headless restart", headless_stop: "headless stopped",
-  server_crash: "server crash", server_restart: "server restart", game_exit: "game closed",
+  headless_crash: "headless crash",
+  headless_restart: "headless restart",
+  headless_stop: "headless stopped",
+  server_crash: "server crash",
+  server_restart: "server restart",
+  game_exit: "game closed",
 };
 
 function when(t) {
@@ -1528,11 +1935,14 @@ function sessionsFrom(events) {
   let cur = null;
   for (const e of events) {
     if (e.kind === "launch") {
-      if (cur && !cur.end) cur.end = e.t, cur.why = "no clean stop recorded";
+      if (cur && !cur.end) ((cur.end = e.t), (cur.why = "no clean stop recorded"));
       cur = { start: e.t, launch: e, counts: {}, end: null, why: null };
       out.push(cur);
     } else if (e.kind === "stop") {
-      if (cur && !cur.end) { cur.end = e.t; cur.why = e.why; }
+      if (cur && !cur.end) {
+        cur.end = e.t;
+        cur.why = e.why;
+      }
     } else if (cur && !cur.end && EVENT_TEXT[e.kind]) {
       cur.counts[e.kind] = (cur.counts[e.kind] || 0) + 1;
     }
@@ -1544,21 +1954,25 @@ async function loadHistory() {
   const events = await invoke("history", { limit: 3000 }).catch(() => []);
   const sessions = sessionsFrom(events).slice(0, 60);
   const live = state.status?.active;
-  $("sessionList").innerHTML = sessions.length ? sessions.map((s, i) => {
-    const l = s.launch;
-    const open = !s.end && i === 0 && live;
-    const len = (s.end || (open ? Date.now() / 1000 : s.start)) - s.start;
-    const vers = [l.spt && "SPT " + l.spt, l.fika && "Fika " + l.fika].filter(Boolean).join(" · ");
-    const tags = Object.entries(s.counts).map(([k, n]) => {
-      const cls = k.endsWith("crash") ? "bad" : "warn";
-      return `<span class="mod-tag ${cls}">${EVENT_TEXT[k]}${n > 1 ? " ×" + n : ""}</span>`;
-    });
-    if (open) tags.unshift(`<span class="mod-tag ok">Running</span>`);
-    return `<div class="session"><div class="session-top"><b>${when(s.start)}</b><span class="muted">${MODE_TEXT[l.mode] || l.mode || ""}</span>
+  $("sessionList").innerHTML = sessions.length
+    ? sessions
+        .map((s, i) => {
+          const l = s.launch;
+          const open = !s.end && i === 0 && live;
+          const len = (s.end || (open ? Date.now() / 1000 : s.start)) - s.start;
+          const vers = [l.spt && "SPT " + l.spt, l.fika && "Fika " + l.fika].filter(Boolean).join(" · ");
+          const tags = Object.entries(s.counts).map(([k, n]) => {
+            const cls = k.endsWith("crash") ? "bad" : "warn";
+            return `<span class="mod-tag ${cls}">${EVENT_TEXT[k]}${n > 1 ? " ×" + n : ""}</span>`;
+          });
+          if (open) tags.unshift(`<span class="mod-tag ok">Running</span>`);
+          return `<div class="session"><div class="session-top"><b>${when(s.start)}</b><span class="muted">${MODE_TEXT[l.mode] || l.mode || ""}</span>
         <div class="spacer"></div><span class="muted small">${dur(Math.round(len))}</span></div>
       <div class="session-meta">${esc([l.profile, vers].filter(Boolean).join(" · "))}${s.why ? " · ended: " + esc(s.why) : ""}</div>
       ${tags.length ? `<div class="session-tags">${tags.join("")}</div>` : ""}</div>`;
-  }).join("") : `<div class="empty">No sessions yet. They're recorded from the next launch on.</div>`;
+        })
+        .join("")
+    : `<div class="empty">No sessions yet. They're recorded from the next launch on.</div>`;
   loadBackups();
 }
 
@@ -1581,7 +1995,10 @@ function renderBackups() {
   for (const b of shown) {
     const d = new Date(b.created * 1000);
     const dayText = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    if (dayText !== day) { day = dayText; rows.push(`<div class="bk-day">${esc(dayText)}</div>`); }
+    if (dayText !== day) {
+      day = dayText;
+      rows.push(`<div class="bk-day">${esc(dayText)}</div>`);
+    }
     const on = bkKey(b) === sel;
     const players = b.profiles.filter((p) => !p.headless);
     const who = players.map((p) => `${esc(p.nickname)} <span>Lv ${p.level}</span>`).join(", ") || "Headless only";
@@ -1593,33 +2010,49 @@ function renderBackups() {
       ${b.source === "app" ? `<button class="textbtn small" data-bk-del="${esc(b.id)}" title="Delete this backup">Delete</button>` : `<span class="bk-gap"></span>`}
     </div>`);
     if (on) {
-      rows.push(`<div class="bk-detail">${b.profiles.map((p) => `<label class="bk-prof">
+      rows.push(
+        `<div class="bk-detail">${b.profiles
+          .map(
+            (p) => `<label class="bk-prof">
           <input type="checkbox" data-prof="${esc(p.id)}" ${state.bk.picked.has(p.id) ? "checked" : ""}>
           <span class="bk-check"></span><b>${esc(p.nickname || p.id)}</b>
-          <small>Lv ${p.level} · ${bytes(p.size)}${p.headless ? " · headless" : ""}</small></label>`).join("")}</div>`);
+          <small>Lv ${p.level} · ${bytes(p.size)}${p.headless ? " · headless" : ""}</small></label>`,
+          )
+          .join("")}</div>`,
+      );
     }
   }
-  $("backupList").innerHTML = rows.length ? rows.join("")
+  $("backupList").innerHTML = rows.length
+    ? rows.join("")
     : `<div class="empty">${list.length ? "None from that source." : "No backups yet. SPT makes its own as you play, and Fika Hub makes one at each launch."}</div>`;
 
-  $$(".bk-row").forEach((el) => (el.onclick = (e) => {
-    if (e.target.closest("[data-bk-del]")) return;
-    const key = el.dataset.bk;
-    if (state.bk.sel === key) return;
-    state.bk.sel = key;
-    const b = list.find((x) => bkKey(x) === key);
-    state.bk.picked = new Set(b.profiles.map((p) => p.id));
-    renderBackups();
-  }));
-  $$("[data-prof]").forEach((c) => (c.onchange = () => {
-    c.checked ? state.bk.picked.add(c.dataset.prof) : state.bk.picked.delete(c.dataset.prof);
-    paintBkBar();
-  }));
-  $$("[data-bk-del]").forEach((btn) => (btn.onclick = async () => {
-    if (!(await confirmBox("Delete this backup?", "Its copied profiles are removed from disk for good.", "Delete"))) return;
-    await call("backup_delete", { id: btn.dataset.bkDel }).catch(() => {});
-    loadBackups();
-  }));
+  $$(".bk-row").forEach(
+    (el) =>
+      (el.onclick = (e) => {
+        if (e.target.closest("[data-bk-del]")) return;
+        const key = el.dataset.bk;
+        if (state.bk.sel === key) return;
+        state.bk.sel = key;
+        const b = list.find((x) => bkKey(x) === key);
+        state.bk.picked = new Set(b.profiles.map((p) => p.id));
+        renderBackups();
+      }),
+  );
+  $$("[data-prof]").forEach(
+    (c) =>
+      (c.onchange = () => {
+        c.checked ? state.bk.picked.add(c.dataset.prof) : state.bk.picked.delete(c.dataset.prof);
+        paintBkBar();
+      }),
+  );
+  $$("[data-bk-del]").forEach(
+    (btn) =>
+      (btn.onclick = async () => {
+        if (!(await confirmBox("Delete this backup?", "Its copied profiles are removed from disk for good.", "Delete"))) return;
+        await call("backup_delete", { id: btn.dataset.bkDel }).catch(() => {});
+        loadBackups();
+      }),
+  );
   paintBkBar();
 }
 
@@ -1628,18 +2061,23 @@ function paintBkBar() {
   const n = b ? b.profiles.filter((p) => state.bk.picked.has(p.id)).length : 0;
   const serverUp = !!state.status?.portOpen;
   $("bkBar").classList.toggle("ready", !!b);
-  $("bkSel").innerHTML = !b ? "Pick a backup to load"
-    : serverUp ? `<b>${when(b.created)}</b> · stop the server before loading`
-    : `<b>${when(b.created)}</b> · ${plural(n, "profile")} selected`;
+  $("bkSel").innerHTML = !b
+    ? "Pick a backup to load"
+    : serverUp
+      ? `<b>${when(b.created)}</b> · stop the server before loading`
+      : `<b>${when(b.created)}</b> · ${plural(n, "profile")} selected`;
   $("bkLoad").disabled = !b || !n || serverUp;
 }
 
-$$("#bkFilter button").forEach((btn) => (btn.onclick = () => {
-  state.bk.src = btn.dataset.src;
-  saveUi();
-  $$("#bkFilter button").forEach((x) => x.classList.toggle("on", x === btn));
-  renderBackups();
-}));
+$$("#bkFilter button").forEach(
+  (btn) =>
+    (btn.onclick = () => {
+      state.bk.src = btn.dataset.src;
+      saveUi();
+      $$("#bkFilter button").forEach((x) => x.classList.toggle("on", x === btn));
+      renderBackups();
+    }),
+);
 
 $("bkLoad").onclick = async () => {
   const b = state.bk.list.find((x) => bkKey(x) === state.bk.sel);
@@ -1652,7 +2090,9 @@ $("bkLoad").onclick = async () => {
   try {
     const n = await invoke("backup_restore", { source: b.source, id: b.id, profiles: picked.map((p) => p.id) });
     toast(`Loaded ${plural(n, "profile")} from ${when(b.created)}`);
-  } catch (e) { toast(String(e), true); }
+  } catch (e) {
+    toast(String(e), true);
+  }
   state.bk.sel = null;
   loadBackups();
   refreshProfiles();
@@ -1660,15 +2100,22 @@ $("bkLoad").onclick = async () => {
 
 $("histRefresh").onclick = loadHistory;
 $("bkNow").onclick = async () => {
-  try { const b = await invoke("backup_create"); toast(b ? "Profiles backed up" : "Nothing changed since the last backup"); }
-  catch (e) { toast(String(e), true); }
+  try {
+    const b = await invoke("backup_create");
+    toast(b ? "Profiles backed up" : "Nothing changed since the last backup");
+  } catch (e) {
+    toast(String(e), true);
+  }
   loadBackups();
 };
 $("bkOpen").onclick = () => call("backup_open").catch(() => {});
 $("diagExport").onclick = async () => {
   $("diagExport").disabled = true;
-  try { if (await invoke("export_diagnostics")) toast("Diagnostics saved"); }
-  catch (e) { toast(String(e), true); }
+  try {
+    if (await invoke("export_diagnostics")) toast("Diagnostics saved");
+  } catch (e) {
+    toast(String(e), true);
+  }
   $("diagExport").disabled = false;
 };
 
@@ -1676,13 +2123,19 @@ $("diagExport").onclick = async () => {
 
 /// Line diff via LCS on the middle part, after trimming the shared head and tail.
 function diffLines(a, b) {
-  const A = a.split("\n"), B = b.split("\n");
+  const A = a.split("\n"),
+    B = b.split("\n");
   let s = 0;
   while (s < A.length && s < B.length && A[s] === B[s]) s++;
-  let ea = A.length, eb = B.length;
-  while (ea > s && eb > s && A[ea - 1] === B[eb - 1]) { ea--; eb--; }
+  let ea = A.length,
+    eb = B.length;
+  while (ea > s && eb > s && A[ea - 1] === B[eb - 1]) {
+    ea--;
+    eb--;
+  }
   const out = A.slice(0, s).map((t) => ["=", t]);
-  const n = ea - s, m = eb - s;
+  const n = ea - s,
+    m = eb - s;
   if (n * m > 4e6) {
     // too big to align, a plain before/after is still readable
     A.slice(s, ea).forEach((t) => out.push(["-", t]));
@@ -1691,12 +2144,22 @@ function diffLines(a, b) {
     const L = new Uint32Array((n + 1) * (m + 1));
     for (let i = n - 1; i >= 0; i--)
       for (let j = m - 1; j >= 0; j--)
-        L[i * (m + 1) + j] = A[s + i] === B[s + j] ? L[(i + 1) * (m + 1) + j + 1] + 1 : Math.max(L[(i + 1) * (m + 1) + j], L[i * (m + 1) + j + 1]);
-    let i = 0, j = 0;
+        L[i * (m + 1) + j] =
+          A[s + i] === B[s + j] ? L[(i + 1) * (m + 1) + j + 1] + 1 : Math.max(L[(i + 1) * (m + 1) + j], L[i * (m + 1) + j + 1]);
+    let i = 0,
+      j = 0;
     while (i < n || j < m) {
-      if (i < n && j < m && A[s + i] === B[s + j]) { out.push(["=", A[s + i]]); i++; j++; }
-      else if (j < m && (i === n || L[i * (m + 1) + j + 1] > L[(i + 1) * (m + 1) + j])) { out.push(["+", B[s + j]]); j++; }
-      else { out.push(["-", A[s + i]]); i++; }
+      if (i < n && j < m && A[s + i] === B[s + j]) {
+        out.push(["=", A[s + i]]);
+        i++;
+        j++;
+      } else if (j < m && (i === n || L[i * (m + 1) + j + 1] > L[(i + 1) * (m + 1) + j])) {
+        out.push(["+", B[s + j]]);
+        j++;
+      } else {
+        out.push(["-", A[s + i]]);
+        i++;
+      }
     }
   }
   A.slice(ea).forEach((t) => out.push(["=", t]));
@@ -1710,12 +2173,16 @@ function diffHtml(oldText, newText) {
   const CTX = 3;
   for (let k = 0; k < ops.length; k++) {
     const [op, t] = ops[k];
-    if (op !== "=") { html.push(`<div class="${op === "+" ? "add" : "del"}">${op} ${esc(t)}</div>`); continue; }
+    if (op !== "=") {
+      html.push(`<div class="${op === "+" ? "add" : "del"}">${op} ${esc(t)}</div>`);
+      continue;
+    }
     // collapse long unchanged stretches, keep a few lines around each change
     let e = k;
     while (e < ops.length && ops[e][0] === "=") e++;
     const runLen = e - k;
-    const head = k === 0 ? 0 : CTX, tail = e === ops.length ? 0 : CTX;
+    const head = k === 0 ? 0 : CTX,
+      tail = e === ops.length ? 0 : CTX;
     if (runLen > head + tail + 2) {
       for (let x = k; x < k + head; x++) html.push(`<div class="same">  ${esc(ops[x][1])}</div>`);
       html.push(`<div class="skip">${runLen - head - tail} unchanged lines</div>`);
@@ -1744,17 +2211,41 @@ async function openSnapshots(selectId) {
   if (!root) return;
   const label = $$("#cfgRoots button").find((b) => b.dataset.root === root)?.textContent || root;
   const snaps = await invoke("snapshot_list", { root }).catch(() => []);
-  openDrawer(`Snapshots · ${label} configs`, `<div class="drawer-side">
+  openDrawer(
+    `Snapshots · ${label} configs`,
+    `<div class="drawer-side">
       <div class="snap-new"><input class="text-in" id="snapName" placeholder="Name, e.g. Before SVM tweak"><button class="primary sm" id="snapTake">Take</button></div>
-      <div id="snapList">${snaps.length ? snaps.map((s) => `<div class="pick" data-snap="${s.id}"><b>${esc(s.name)}</b><small>${when(s.created)} · ${s.files.length} files</small></div>`).join("")
-        : `<div class="empty">No snapshots yet. Take one before changing a lot of settings.</div>`}</div>
-    </div><div class="drawer-main" id="snapMain"><div class="empty">Pick a snapshot to compare it with the files as they are now.</div></div>`);
+      <div id="snapList">${
+        snaps.length
+          ? snaps
+              .map(
+                (s) =>
+                  `<div class="pick" data-snap="${s.id}"><b>${esc(s.name)}</b><small>${when(s.created)} · ${s.files.length} files</small></div>`,
+              )
+              .join("")
+          : `<div class="empty">No snapshots yet. Take one before changing a lot of settings.</div>`
+      }</div>
+    </div><div class="drawer-main" id="snapMain"><div class="empty">Pick a snapshot to compare it with the files as they are now.</div></div>`,
+  );
   $("snapTake").onclick = async () => {
     $("snapTake").disabled = true;
-    try { const s = await invoke("snapshot_create", { root, name: $("snapName").value }); toast(`Saved ${s.files.length} files`); openSnapshots(s.id); }
-    catch (e) { toast(String(e), true); $("snapTake").disabled = false; }
+    try {
+      const s = await invoke("snapshot_create", { root, name: $("snapName").value });
+      toast(`Saved ${s.files.length} files`);
+      openSnapshots(s.id);
+    } catch (e) {
+      toast(String(e), true);
+      $("snapTake").disabled = false;
+    }
   };
-  $$("[data-snap]").forEach((el) => (el.onclick = () => showSnapshot(root, snaps.find((s) => s.id === el.dataset.snap))));
+  $$("[data-snap]").forEach(
+    (el) =>
+      (el.onclick = () =>
+        showSnapshot(
+          root,
+          snaps.find((s) => s.id === el.dataset.snap),
+        )),
+  );
   const pre = snaps.find((s) => s.id === selectId);
   if (pre) showSnapshot(root, pre);
 }
@@ -1764,14 +2255,26 @@ async function showSnapshot(root, snap) {
   const main = $("snapMain");
   main.innerHTML = `<div class="empty">Comparing…</div>`;
   let changes;
-  try { changes = await invoke("snapshot_compare", { root, id: snap.id }); }
-  catch (e) { main.innerHTML = `<div class="empty">${esc(e)}</div>`; return; }
+  try {
+    changes = await invoke("snapshot_compare", { root, id: snap.id });
+  } catch (e) {
+    main.innerHTML = `<div class="empty">${esc(e)}</div>`;
+    return;
+  }
   const restorable = changes.filter((c) => c.status !== "added");
   main.innerHTML = `<div class="drawer-bar"><b>${esc(snap.name)}</b><span class="muted small">${when(snap.created)}</span><div class="spacer"></div>
       <button class="ghost sm" id="snapDel">Delete</button>
       <button class="primary sm" id="snapRestoreAll" ${restorable.length ? "" : "disabled"}>Restore ${restorable.length ? plural(restorable.length, "file") : "nothing"}</button></div>
-    ${changes.length ? changes.map((c) => `<div class="change" data-rel="${esc(c.rel)}" data-status="${c.status}"><span>${esc(c.rel)}</span><i class="mod-tag ${c.status === "changed" ? "warn" : c.status === "missing" ? "bad" : ""}">${CHANGE_TEXT[c.status]}</i></div>`).join("")
-      : `<div class="empty">Everything matches this snapshot.</div>`}
+    ${
+      changes.length
+        ? changes
+            .map(
+              (c) =>
+                `<div class="change" data-rel="${esc(c.rel)}" data-status="${c.status}"><span>${esc(c.rel)}</span><i class="mod-tag ${c.status === "changed" ? "warn" : c.status === "missing" ? "bad" : ""}">${CHANGE_TEXT[c.status]}</i></div>`,
+            )
+            .join("")
+        : `<div class="empty">Everything matches this snapshot.</div>`
+    }
     <div id="snapDiff"></div>`;
   $("snapDel").onclick = async () => {
     if (!(await confirmBox("Delete snapshot?", `${snap.name} is removed for good. Your current configs aren't touched.`, "Delete"))) return;
@@ -1779,19 +2282,31 @@ async function showSnapshot(root, snap) {
     openSnapshots();
   };
   $("snapRestoreAll").onclick = async () => {
-    if (!(await confirmBox("Restore snapshot?", `${plural(restorable.length, "file")} go back to how they were in "${snap.name}". Each current file is backed up first. Files added since stay as they are.`, "Restore"))) return;
+    if (
+      !(await confirmBox(
+        "Restore snapshot?",
+        `${plural(restorable.length, "file")} go back to how they were in "${snap.name}". Each current file is backed up first. Files added since stay as they are.`,
+        "Restore",
+      ))
+    )
+      return;
     await restoreSnap(root, snap, null);
   };
-  $$(".change").forEach((el) => (el.onclick = async () => {
-    $$(".change").forEach((x) => x.classList.toggle("sel", x === el));
-    const rel = el.dataset.rel, st = el.dataset.status;
-    const old = st === "added" ? "" : await invoke("snapshot_read", { root, id: snap.id, rel }).catch(() => "");
-    const now = st === "missing" ? "" : (await invoke("config_read", { root, rel }).catch(() => ({ text: "" }))).text;
-    $("snapDiff").innerHTML = `<div class="drawer-bar"><b>${esc(rel)}</b><span class="muted small">red is the snapshot, green is now</span><div class="spacer"></div>
+  $$(".change").forEach(
+    (el) =>
+      (el.onclick = async () => {
+        $$(".change").forEach((x) => x.classList.toggle("sel", x === el));
+        const rel = el.dataset.rel,
+          st = el.dataset.status;
+        const old = st === "added" ? "" : await invoke("snapshot_read", { root, id: snap.id, rel }).catch(() => "");
+        const now = st === "missing" ? "" : (await invoke("config_read", { root, rel }).catch(() => ({ text: "" }))).text;
+        $("snapDiff").innerHTML =
+          `<div class="drawer-bar"><b>${esc(rel)}</b><span class="muted small">red is the snapshot, green is now</span><div class="spacer"></div>
         ${st !== "added" ? `<button class="ghost sm" id="snapRestoreOne">Restore this file</button>` : ""}</div>${diffHtml(old, now)}`;
-    const one = $("snapRestoreOne");
-    if (one) one.onclick = () => restoreSnap(root, snap, [rel]);
-  }));
+        const one = $("snapRestoreOne");
+        if (one) one.onclick = () => restoreSnap(root, snap, [rel]);
+      }),
+  );
 }
 
 async function restoreSnap(root, snap, only) {
@@ -1800,14 +2315,17 @@ async function restoreSnap(root, snap, only) {
     const n = await invoke("snapshot_restore", { root, id: snap.id, only });
     toast(n ? `Restored ${plural(n, "file")}` : "Already matched");
     if (state.status?.server.running && root === "server") toast("Restart the server for server configs to apply");
-  } catch (e) { toast(String(e), true); }
+  } catch (e) {
+    toast(String(e), true);
+  }
   if (state.cfg.open && state.cfg.openRoot === root) openConfig(state.cfg.open);
   showSnapshot(root, snap);
 }
 $("cfgSnapBtn").onclick = () => openSnapshots();
 
 async function openFileHistory() {
-  const root = state.cfg.openRoot, rel = state.cfg.open;
+  const root = state.cfg.openRoot,
+    rel = state.cfg.open;
   if (!rel) return;
   const [baks, snaps] = await Promise.all([
     invoke("config_backups", { root, rel }).catch(() => []),
@@ -1815,29 +2333,55 @@ async function openFileHistory() {
   ]);
   const inSnaps = snaps.filter((s) => s.files.includes(rel));
   const items = [
-    ...baks.map((b) => ({ key: "b:" + b.name, title: when(b.saved), sub: `Before a save · ${bytes(b.size)}`, load: () => invoke("config_backup_read", { root, rel, name: b.name }) })),
-    ...inSnaps.map((s) => ({ key: "s:" + s.id, title: s.name, sub: `Snapshot · ${when(s.created)}`, load: () => invoke("snapshot_read", { root, id: s.id, rel }) })),
+    ...baks.map((b) => ({
+      key: "b:" + b.name,
+      title: when(b.saved),
+      sub: `Before a save · ${bytes(b.size)}`,
+      load: () => invoke("config_backup_read", { root, rel, name: b.name }),
+    })),
+    ...inSnaps.map((s) => ({
+      key: "s:" + s.id,
+      title: s.name,
+      sub: `Snapshot · ${when(s.created)}`,
+      load: () => invoke("snapshot_read", { root, id: s.id, rel }),
+    })),
   ];
-  openDrawer(`History · ${rel.split("\\").pop()}`, `<div class="drawer-side">${items.length
-      ? items.map((it) => `<div class="pick" data-hist="${esc(it.key)}"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></div>`).join("")
-      : `<div class="empty">No earlier versions. One is kept each time you save here.</div>`}</div>
-    <div class="drawer-main" id="histMain"><div class="empty">Pick a version to compare it with what's in the editor.</div></div>`);
-  $$("[data-hist]").forEach((el) => (el.onclick = async () => {
-    $$("[data-hist]").forEach((x) => x.classList.toggle("sel", x === el));
-    const it = items.find((x) => x.key === el.dataset.hist);
-    let text;
-    try { text = await it.load(); } catch (e) { $("histMain").innerHTML = `<div class="empty">${esc(e)}</div>`; return; }
-    $("histMain").innerHTML = `<div class="drawer-bar"><b>${esc(it.title)}</b><span class="muted small">red is this version, green is the editor</span><div class="spacer"></div>
+  openDrawer(
+    `History · ${rel.split("\\").pop()}`,
+    `<div class="drawer-side">${
+      items.length
+        ? items
+            .map((it) => `<div class="pick" data-hist="${esc(it.key)}"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></div>`)
+            .join("")
+        : `<div class="empty">No earlier versions. One is kept each time you save here.</div>`
+    }</div>
+    <div class="drawer-main" id="histMain"><div class="empty">Pick a version to compare it with what's in the editor.</div></div>`,
+  );
+  $$("[data-hist]").forEach(
+    (el) =>
+      (el.onclick = async () => {
+        $$("[data-hist]").forEach((x) => x.classList.toggle("sel", x === el));
+        const it = items.find((x) => x.key === el.dataset.hist);
+        let text;
+        try {
+          text = await it.load();
+        } catch (e) {
+          $("histMain").innerHTML = `<div class="empty">${esc(e)}</div>`;
+          return;
+        }
+        $("histMain").innerHTML =
+          `<div class="drawer-bar"><b>${esc(it.title)}</b><span class="muted small">red is this version, green is the editor</span><div class="spacer"></div>
         <button class="primary sm" id="histLoad">Load into editor</button></div>${diffHtml(text, $("cfgText").value)}`;
-    $("histLoad").onclick = () => {
-      if (state.cfg.readOnly) return toast("This file is read-only here", true);
-      // lands as an unsaved edit, so nothing changes on disk until Save
-      $("cfgText").value = text;
-      $("cfgText").oninput();
-      $("drawer").hidden = true;
-      toast("Loaded. Save to keep it, Revert to drop it");
-    };
-  }));
+        $("histLoad").onclick = () => {
+          if (state.cfg.readOnly) return toast("This file is read-only here", true);
+          // lands as an unsaved edit, so nothing changes on disk until Save
+          $("cfgText").value = text;
+          $("cfgText").oninput();
+          $("drawer").hidden = true;
+          toast("Loaded. Save to keep it, Revert to drop it");
+        };
+      }),
+  );
 }
 $("cfgHistBtn").onclick = openFileHistory;
 
@@ -1848,13 +2392,16 @@ function applySettingValues() {
     if (document.activeElement !== i) i.value = state.settings[i.dataset.setVal] ?? "";
   });
 }
-$$("[data-set-val]").forEach((i) => (i.onchange = async () => {
-  const k = i.dataset.setVal;
-  state.settings[k] = i.type === "number" ? Math.max(+i.min || 0, Math.min(+i.max || 1e9, Math.round(+i.value || 0))) : i.value.trim();
-  i.value = state.settings[k];
-  await saveSettings();
-  loadNextRestart();
-}));
+$$("[data-set-val]").forEach(
+  (i) =>
+    (i.onchange = async () => {
+      const k = i.dataset.setVal;
+      state.settings[k] = i.type === "number" ? Math.max(+i.min || 0, Math.min(+i.max || 1e9, Math.round(+i.value || 0))) : i.value.trim();
+      i.value = state.settings[k];
+      await saveSettings();
+      loadNextRestart();
+    }),
+);
 
 async function loadNextRestart() {
   const t = await invoke("next_restart").catch(() => 0);
@@ -1863,9 +2410,13 @@ async function loadNextRestart() {
 
 $("discordTest").onclick = async () => {
   $("discordTest").disabled = true;
-  try { await invoke("discord_test"); toast("Posted to Discord"); } catch (e) { toast(String(e), true); }
+  try {
+    await invoke("discord_test");
+    toast("Posted to Discord");
+  } catch (e) {
+    toast(String(e), true);
+  }
   $("discordTest").disabled = false;
 };
-
 
 boot();

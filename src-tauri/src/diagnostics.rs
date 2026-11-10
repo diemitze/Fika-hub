@@ -29,13 +29,19 @@ fn newest(dir: &Path, ext: &str) -> Option<PathBuf> {
 }
 
 fn listing(dir: &Path) -> String {
-    let Ok(rd) = std::fs::read_dir(dir) else { return format!("({} not found)\n", dir.display()) };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return format!("({} not found)\n", dir.display());
+    };
     let mut names: Vec<String> = rd
         .flatten()
         .map(|e| {
             let n = e.file_name().to_string_lossy().to_string();
             let ver = install::file_version(&e.path()).map(|v| format!("  {v}")).unwrap_or_default();
-            if e.path().is_dir() { format!("{n}/") } else { format!("{n}{ver}") }
+            if e.path().is_dir() {
+                format!("{n}/")
+            } else {
+                format!("{n}{ver}")
+            }
         })
         .collect();
     names.sort_by_key(|n| n.to_lowercase());
@@ -46,6 +52,7 @@ pub fn build(core: &Core, out: &Path) -> Result<(), String> {
     let s = core.settings.lock().unwrap().clone();
     let host = crate::host_dir(&s);
     let player = s.player_dir.clone().map(PathBuf::from);
+    let headless = crate::headless_dir(&s);
 
     let file = std::fs::File::create(out).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
@@ -57,13 +64,23 @@ pub fn build(core: &Core, out: &Path) -> Result<(), String> {
 
     // the webhook URL is a secret, everything else in settings helps debugging
     let mut redacted = serde_json::to_value(&s).unwrap_or_default();
-    if let Some(v) = redacted.get_mut("discordWebhook").filter(|v| v.as_str().is_some_and(|x| !x.is_empty())) {
+    if let Some(v) = redacted
+        .get_mut("discordWebhook")
+        .filter(|v| v.as_str().is_some_and(|x| !x.is_empty()))
+    {
         *v = "(set, removed from bundle)".into();
     }
-    add("settings.json", serde_json::to_string_pretty(&redacted).unwrap_or_default().as_bytes())?;
+    add(
+        "settings.json",
+        serde_json::to_string_pretty(&redacted).unwrap_or_default().as_bytes(),
+    )?;
 
     let mut info = format!("Fika Hub {}\n", env!("CARGO_PKG_VERSION"));
-    for (label, dir) in [("host", host.as_deref()), ("player", player.as_deref())] {
+    for (label, dir) in [
+        ("host", host.as_deref()),
+        ("headless", headless.as_deref()),
+        ("player", player.as_deref()),
+    ] {
         let Some(d) = dir else { continue };
         info += &format!(
             "{label}: {}\n  SPT {}\n  Fika {}\n",
@@ -87,9 +104,6 @@ pub fn build(core: &Core, out: &Path) -> Result<(), String> {
     }
 
     if let Some(h) = host.as_deref() {
-        if let Some(b) = tail_bytes(&install::bepinex_log(h)) {
-            add("host/LogOutput.log", &b)?;
-        }
         if let Some(root) = install::spt_root(h) {
             if let Some(b) = newest(&root.join("user").join("logs").join("spt"), "log").and_then(|p| tail_bytes(&p)) {
                 add("host/spt-server.log", &b)?;
@@ -99,7 +113,12 @@ pub fn build(core: &Core, out: &Path) -> Result<(), String> {
             }
             add("host/server-mods.txt", listing(&root.join("user").join("mods")).as_bytes())?;
         }
-        add("host/plugins.txt", listing(&h.join("BepInEx").join("plugins")).as_bytes())?;
+    }
+    if let Some(h) = headless.as_deref() {
+        if let Some(b) = tail_bytes(&install::bepinex_log(h)) {
+            add("headless/LogOutput.log", &b)?;
+        }
+        add("headless/plugins.txt", listing(&h.join("BepInEx").join("plugins")).as_bytes())?;
     }
     if let Some(p) = player.as_deref() {
         if let Some(b) = tail_bytes(&install::bepinex_log(p)) {
