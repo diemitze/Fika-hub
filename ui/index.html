@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fika Control</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img src="logo.png" alt="" class="brand-logo">
+      <span class="brand-name" data-tauri-drag-region>FIKA<b>CONTROL</b></span>
+    </div>
+    <div class="stack-pill" id="stackPill" data-tauri-drag-region>
+      <span class="pill-dot"></span><span id="stackPillText">Idle</span>
+    </div>
+    <div class="titlebar-chips" data-tauri-drag-region>
+      <span class="chip" id="chipSpt">SPT</span>
+      <span class="chip" id="chipFika">Fika</span>
+    </div>
+    <div class="spacer" data-tauri-drag-region></div>
+    <div class="winctl">
+      <button id="winMin" title="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+      <button id="winMax" title="Maximize"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7"/></svg></button>
+      <button id="winClose" class="close" title="Close"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </header>
+
+  <nav class="rail">
+    <button class="rail-btn active" data-page="dashboard" title="Dashboard">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      <span>Ops</span>
+    </button>
+    <button class="rail-btn" data-page="console" title="Console">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>
+      <span>Console</span>
+      <i class="rail-badge" id="badgeConsole" hidden></i>
+    </button>
+    <button class="rail-btn" data-page="configs" title="Mod configs">
+      <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+      <span>Configs</span>
+    </button>
+    <div class="rail-spacer"></div>
+    <button class="rail-btn" data-page="settings" title="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
+
+  <main>
+    <!-- ======================= DASHBOARD ======================= -->
+    <section class="page active" id="page-dashboard">
+
+      <div class="command card">
+        <div class="cmd-block cmd-mode">
+          <div class="label">Launch mode</div>
+          <div class="seg" id="modeSeg">
+            <button data-mode="full"><b>Full stack</b><small>Server, headless and your game</small></button>
+            <button data-mode="host"><b>Host only</b><small>Server and headless for friends</small></button>
+            <button data-mode="join"><b>Game only</b><small>Join a server that's already up</small></button>
+          </div>
+        </div>
+        <div class="cmd-block cmd-who">
+          <div class="label">Playing as</div>
+          <div class="who" id="whoBtn" tabindex="0">
+            <div class="who-avatar" id="whoAvatar">?</div>
+            <div class="who-text"><b id="whoName">No profile</b><small id="whoSub">Pick an account</small></div>
+            <svg class="who-caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+          <div class="who-menu" id="whoMenu" hidden></div>
+        </div>
+        <div class="cmd-block cmd-go">
+          <button class="go" id="goBtn">
+            <span class="go-fill" id="goFill"></span>
+            <span class="go-label" id="goLabel">LAUNCH</span>
+            <span class="go-sub" id="goSub">Full stack</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="banner warn" id="mismatchBanner" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>
+        <span id="mismatchText"></span>
+      </div>
+
+      <div class="pipeline">
+        <div class="node card" id="nodeServer">
+          <div class="node-head">
+            <span class="ring"></span>
+            <div><b>SPT Server</b><small class="node-state">Offline</small></div>
+            <span class="node-tag" id="srvPort">:6969</span>
+          </div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="spark-area"/><path class="spark-line"/></svg>
+          <div class="node-stats">
+            <div><small>Uptime</small><b class="v-up">-</b></div>
+            <div><small>CPU</small><b class="v-cpu">-</b></div>
+            <div><small>RAM</small><b class="v-ram">-</b></div>
+          </div>
+          <div class="node-actions">
+            <button class="ghost sm" data-open="mods">Mods folder</button>
+            <button class="ghost sm" data-goto-log="0">Output</button>
+          </div>
+        </div>
+
+        <div class="link" id="link1"><i></i></div>
+
+        <div class="node card" id="nodeHeadless">
+          <div class="node-head">
+            <span class="ring"></span>
+            <div><b>Headless</b><small class="node-state">Offline</small></div>
+            <span class="node-tag" id="hlRestarts" title="Crash restarts this session">0 restarts</span>
+          </div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="spark-area"/><path class="spark-line"/></svg>
+          <div class="node-stats">
+            <div><small>Uptime</small><b class="v-up">-</b></div>
+            <div><small>CPU</small><b class="v-cpu">-</b></div>
+            <div><small>RAM</small><b class="v-ram">-</b></div>
+          </div>
+          <div class="node-actions">
+            <button class="ghost sm" id="btnRestartHl" disabled>Restart</button>
+            <button class="ghost sm" data-goto-log="1">Log</button>
+          </div>
+        </div>
+
+        <div class="link" id="link2"><i></i></div>
+
+        <div class="node card" id="nodeGame">
+          <div class="node-head">
+            <span class="ring"></span>
+            <div><b>Your game</b><small class="node-state">Offline</small></div>
+            <span class="node-tag" id="gameTag">-</span>
+          </div>
+          <svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="spark-area"/><path class="spark-line"/></svg>
+          <div class="node-stats">
+            <div><small>Uptime</small><b class="v-up">-</b></div>
+            <div><small>CPU</small><b class="v-cpu">-</b></div>
+            <div><small>RAM</small><b class="v-ram">-</b></div>
+          </div>
+          <div class="node-actions">
+            <button class="ghost sm" id="btnStartGame" disabled>Start game</button>
+            <button class="ghost sm" data-goto-log="2">Log</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="lower">
+        <div class="card lobby">
+          <div class="card-head">
+            <h3>Raids</h3><span class="count" id="raidCount">0</span>
+            <div class="spacer"></div>
+            <span class="muted small" id="fikaSrvVer">server offline</span>
+          </div>
+          <div class="raids" id="raidList"></div>
+          <div class="card-head sub">
+            <h3>Online</h3><span class="count" id="onlineCount">0</span>
+          </div>
+          <div class="players" id="playerList"></div>
+        </div>
+
+        <div class="card operator" id="operator">
+          <div class="op-top">
+            <div class="op-badge" id="opLevel">--</div>
+            <div class="op-name">
+              <b id="opName">No profile</b>
+              <small id="opSub">-</small>
+            </div>
+            <span class="side-tag" id="opSide">-</span>
+          </div>
+          <div class="op-sr">
+            <div class="op-sr-ring" id="opRing"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" class="bg"/><circle cx="18" cy="18" r="15.5" class="fg" id="opRingFg"/></svg><b id="opSr">-</b></div>
+            <div class="op-sr-text"><small>Survival rate</small><b id="opRaids">0 raids</b><small id="opLast">-</small></div>
+          </div>
+          <div class="op-grid">
+            <div><small>K/D</small><b id="opKd">-</b></div>
+            <div><small>Kills</small><b id="opKills">-</b></div>
+            <div><small>PMC kills</small><b id="opPmc">-</b></div>
+            <div><small>Boss kills</small><b id="opBoss">-</b></div>
+            <div><small>Headshots</small><b id="opHs">-</b></div>
+            <div><small>Win streak</small><b id="opStreak">-</b></div>
+            <div><small>Roubles</small><b id="opRub">-</b></div>
+            <div><small>Time in raid</small><b id="opTime">-</b></div>
+          </div>
+          <div class="op-foot">
+            <span id="opSaved">-</span>
+            <span class="warn-text" id="opInvalid" hidden>Profile looks incomplete</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= CONSOLE ======================= -->
+    <section class="page" id="page-console">
+      <div class="console-bar">
+        <div class="tabs" id="logTabs">
+          <button class="tab active" data-stream="0"><span class="tab-dot"></span>Server<i class="tab-err" hidden></i></button>
+          <button class="tab" data-stream="1"><span class="tab-dot"></span>Headless<i class="tab-err" hidden></i></button>
+          <button class="tab" data-stream="2"><span class="tab-dot"></span>Game<i class="tab-err" hidden></i></button>
+        </div>
+        <div class="spacer"></div>
+        <div class="search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <input id="logSearch" placeholder="Filter lines" spellcheck="false">
+        </div>
+        <div class="seg mini" id="levelSeg">
+          <button data-level="all" class="on">All</button>
+          <button data-level="warn">Warn+</button>
+          <button data-level="error">Errors</button>
+        </div>
+      </div>
+      <div class="logwrap card">
+        <div class="logview" id="logView"></div>
+        <button class="jump" id="logJump" hidden>Jump to latest</button>
+      </div>
+      <div class="console-foot">
+        <label class="toggle"><input type="checkbox" id="logFollow" checked><span></span>Follow</label>
+        <label class="toggle"><input type="checkbox" id="logWrap"><span></span>Wrap</label>
+        <span class="muted small" id="logStats">0 lines</span>
+        <div class="spacer"></div>
+        <button class="ghost sm" id="logOpen">Open folder</button>
+        <button class="ghost sm" id="logCopy">Copy</button>
+        <button class="ghost sm" id="logSave">Save</button>
+        <button class="ghost sm" id="logClear">Clear</button>
+      </div>
+    </section>
+
+    <!-- ======================= CONFIGS ======================= -->
+    <section class="page" id="page-configs">
+      <div class="cfg">
+        <aside class="cfg-side card">
+          <div class="seg mini full" id="cfgRoots"></div>
+          <div class="search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input id="cfgSearch" placeholder="Search configs" spellcheck="false">
+          </div>
+          <label class="toggle small"><input type="checkbox" id="cfgAll"><span></span>Show every text file</label>
+          <div class="cfg-list" id="cfgList"></div>
+        </aside>
+        <div class="cfg-main card">
+          <div class="cfg-head">
+            <div class="cfg-title"><b id="cfgName">Pick a config</b><small id="cfgPath">Backups are kept next to each file in .fikarunner-backups</small></div>
+            <div class="spacer"></div>
+            <button class="ghost sm" id="cfgOpenDir" disabled>Folder</button>
+            <button class="ghost sm" id="cfgRevert" disabled>Revert</button>
+            <button class="primary sm" id="cfgSave" disabled>Save</button>
+          </div>
+          <div class="editor">
+            <pre class="gutter" id="cfgGutter">1</pre>
+            <textarea id="cfgText" spellcheck="false" wrap="off" disabled></textarea>
+          </div>
+          <div class="cfg-status" id="cfgStatus"><span class="dot"></span><span id="cfgStatusText">No file open</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= SETTINGS ======================= -->
+    <section class="page" id="page-settings">
+      <div class="settings">
+        <div class="card set-card">
+          <h3>Installs</h3>
+          <div class="set-row">
+            <div class="set-label"><b>Host install</b><small>Runs the SPT server and the headless client.</small></div>
+            <div class="path-box"><code id="setHost">-</code><small id="setHostNote"></small></div>
+            <button class="ghost sm" id="browseHost">Browse</button>
+          </div>
+          <div class="set-row">
+            <div class="set-label"><b>Game install</b><small>The copy you play on.</small></div>
+            <div class="path-box"><code id="setPlayer">-</code><small id="setPlayerNote"></small></div>
+            <button class="ghost sm" id="browsePlayer">Browse</button>
+          </div>
+        </div>
+
+        <div class="card set-card">
+          <h3>Behaviour</h3>
+          <label class="set-toggle"><div><b>Restart headless when it crashes</b><small>Waits 3 seconds, then brings it back.</small></div><span class="toggle"><input type="checkbox" data-set="autoRestartHeadless"><span></span></span></label>
+          <label class="set-toggle"><div><b>Stop everything when the game closes</b><small>Host-only mode always keeps running.</small></div><span class="toggle"><input type="checkbox" data-set="stopWithGame"><span></span></span></label>
+          <label class="set-toggle"><div><b>Minimize on launch</b><small>Gets the launcher out of the way.</small></div><span class="toggle"><input type="checkbox" data-set="minimizeOnLaunch"><span></span></span></label>
+          <label class="set-toggle"><div><b>Warn about version mismatches</b><small>Asks before launching if SPT or Fika differ between installs.</small></div><span class="toggle"><input type="checkbox" data-set="warnMismatch"><span></span></span></label>
+        </div>
+
+        <div class="card set-card">
+          <h3>Game window</h3>
+          <p class="muted small">EFT rewrites its window mode on exit, so this is reapplied before each launch.</p>
+          <div class="seg" id="displaySeg">
+            <button data-display=""><b>Leave alone</b></button>
+            <button data-display="Windowed"><b>Windowed</b></button>
+            <button data-display="Borderless Fullscreen"><b>Borderless</b></button>
+            <button data-display="Fullscreen"><b>Fullscreen</b></button>
+          </div>
+        </div>
+
+        <div class="card set-card">
+          <h3>Quick folders</h3>
+          <div class="quick">
+            <button class="ghost sm" data-open="host">Host install</button>
+            <button class="ghost sm" data-open="player">Game install</button>
+            <button class="ghost sm" data-open="mods">Server mods</button>
+            <button class="ghost sm" data-open="profiles">Profiles</button>
+          </div>
+          <p class="muted small about" id="aboutText">Fika Control</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- setup -->
+<div class="overlay" id="setup" hidden>
+  <div class="setup card">
+    <img src="logo.png" alt="" class="setup-logo">
+    <h2>Set up Fika Control</h2>
+    <p class="muted">Two folders and you're done.</p>
+    <div class="setup-step" id="stepHost">
+      <span class="step-n">1</span>
+      <div class="step-body"><b>Host install</b><small id="setupHostText">Where the server and headless live.</small></div>
+      <button class="ghost sm" id="setupHostBtn">Browse</button>
+    </div>
+    <div class="setup-step" id="stepPlayer">
+      <span class="step-n">2</span>
+      <div class="step-body"><b>Game install</b><small id="setupPlayerText">The copy you play on. Skip it if you only host.</small></div>
+      <button class="ghost sm" id="setupPlayerBtn">Browse</button>
+    </div>
+    <p class="err-text" id="setupErr" hidden></p>
+    <div class="setup-actions">
+      <button class="primary" id="setupDone" disabled>Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- confirm -->
+<div class="overlay" id="modal" hidden>
+  <div class="modal card">
+    <h3 id="modalTitle"></h3>
+    <p id="modalBody"></p>
+    <div class="modal-actions">
+      <button class="ghost" id="modalNo">Cancel</button>
+      <button class="primary" id="modalYes">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
