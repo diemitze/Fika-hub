@@ -694,7 +694,7 @@ function mock(cmd) {
   const t = (mock.t = (mock.t || 0) + 1);
   const proc = (on, ram, owned = true) => ({ running: on, owned, pid: 1, cpu: on ? 8 + Math.random() * 20 : 0, ram: on ? ram + Math.random() * 2e8 : 0, uptime: on ? 3600 + t : 0 });
   const data = {
-    boot: { hostDir: "D:\\Fika headless 4.1", hostFromExe: true, hostProblem: null, playerDir: "D:\\SPT 4.1", playerProblem: null, appVersion: "1.0.0",
+    boot: { hostDir: "C:\\SPT-Host", hostFromExe: true, hostProblem: null, playerDir: "C:\\SPT-Game", playerProblem: null, appVersion: "1.0.0",
       settings: { launchMode: "full", lastProfile: "a", autoRestartHeadless: true, stopWithGame: true, minimizeOnLaunch: false, warnMismatch: true, displayMode: "Borderless Fullscreen" },
       versions: { sptHost: "4.1.4", sptPlayer: "4.1.4", fikaHost: "2.1.2", fikaPlayer: "2.1.2" } },
     list_profiles: [
