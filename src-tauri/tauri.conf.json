@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Fika Control",
+  "productName": "Fika Hub",
   "version": "1.0.0",
-  "identifier": "dev.20fpsguy.fikacontrol",
+  "identifier": "dev.20fpsguy.fikahub",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Fika Control",
+        "title": "Fika Hub",
         "width": 1320,
         "height": 840,
         "minWidth": 1040,

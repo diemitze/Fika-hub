@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fika Control</title>
+<title>Fika Hub</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,10 +12,13 @@
   <header class="titlebar" data-tauri-drag-region>
     <div class="brand" data-tauri-drag-region>
       <img src="logo.png" alt="" class="brand-logo">
-      <span class="brand-name" data-tauri-drag-region>FIKA<b>CONTROL</b></span>
+      <span class="brand-name" data-tauri-drag-region><b>FIKA</b><i></i><span>HUB</span></span>
     </div>
     <div class="stack-pill" id="stackPill" data-tauri-drag-region>
-      <span class="pill-dot"></span><span id="stackPillText">Idle</span>
+      <span class="pill-bar" id="stackPillBar"></span>
+      <span class="pill-dot"><i></i></span>
+      <span class="pill-text" id="stackPillText">Idle</span>
+      <span class="pill-meta" id="stackPillMeta" hidden></span>
     </div>
     <div class="titlebar-chips" data-tauri-drag-region>
       <span class="chip" id="chipSpt">SPT</span>
@@ -30,6 +33,7 @@
   </header>
 
   <nav class="rail">
+    <span class="rail-ind" id="railInd"></span>
     <button class="rail-btn active" data-page="dashboard" title="Dashboard">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
       <span>Ops</span>
@@ -42,6 +46,10 @@
     <button class="rail-btn" data-page="configs" title="Mod configs">
       <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
       <span>Configs</span>
+    </button>
+    <button class="rail-btn" data-page="history" title="History and backups">
+      <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+      <span>History</span>
     </button>
     <div class="rail-spacer"></div>
     <button class="rail-btn" data-page="settings" title="Settings">
@@ -73,6 +81,7 @@
           <div class="who-menu" id="whoMenu" hidden></div>
         </div>
         <div class="cmd-block cmd-go">
+          <button class="ghost sm check-btn" id="btnCheck" title="Check installs, versions, port and profile">Check setup</button>
           <button class="go" id="goBtn">
             <span class="go-fill" id="goFill"></span>
             <span class="go-label" id="goLabel">LAUNCH</span>
@@ -100,7 +109,8 @@
             <div><small>RAM</small><b class="v-ram">-</b></div>
           </div>
           <div class="node-actions">
-            <button class="ghost sm" data-open="mods">Mods folder</button>
+            <button class="ghost sm" id="btnRestartSrv" disabled>Restart</button>
+            <button class="ghost sm" data-open="mods">Mods</button>
             <button class="ghost sm" data-goto-log="0">Output</button>
           </div>
         </div>
@@ -121,6 +131,7 @@
           </div>
           <div class="node-actions">
             <button class="ghost sm" id="btnRestartHl" disabled>Restart</button>
+            <button class="ghost sm" id="btnHlPower" disabled>Stop</button>
             <button class="ghost sm" data-goto-log="1">Log</button>
           </div>
         </div>
@@ -200,6 +211,7 @@
           <button class="tab" data-stream="2"><span class="tab-dot"></span>Game<i class="tab-err" hidden></i></button>
         </div>
         <div class="spacer"></div>
+        <select class="select" id="logRun" title="Each restart starts a new run"><option value="current">Current run</option></select>
         <div class="search">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
           <input id="logSearch" placeholder="Filter lines" spellcheck="false">
@@ -208,6 +220,7 @@
           <button data-level="all" class="on">All</button>
           <button data-level="warn">Warn+</button>
           <button data-level="error">Errors</button>
+          <button data-level="context" title="Each error with the lines around it">Errors + context</button>
         </div>
       </div>
       <div class="logwrap card">
@@ -217,11 +230,12 @@
       <div class="console-foot">
         <label class="toggle"><input type="checkbox" id="logFollow" checked><span></span>Follow</label>
         <label class="toggle"><input type="checkbox" id="logWrap"><span></span>Wrap</label>
+        <label class="toggle" title="Hides [Client Request] and [WebSocket Request] lines. Saved logs keep them."><input type="checkbox" id="logQuiet"><span></span>Hide requests</label>
         <span class="muted small" id="logStats">0 lines</span>
         <div class="spacer"></div>
         <button class="ghost sm" id="logOpen">Open folder</button>
-        <button class="ghost sm" id="logCopy">Copy</button>
-        <button class="ghost sm" id="logSave">Save</button>
+        <button class="ghost sm" id="logCopy" title="Copies the lines shown">Copy</button>
+        <button class="ghost sm" id="logSave" title="Saves the full unfiltered log">Save</button>
         <button class="ghost sm" id="logClear">Clear</button>
       </div>
     </section>
@@ -236,12 +250,15 @@
             <input id="cfgSearch" placeholder="Search configs" spellcheck="false">
           </div>
           <label class="toggle small"><input type="checkbox" id="cfgAll"><span></span>Show every text file</label>
+          <button class="ghost sm" id="cfgSnapBtn" title="Save and compare copies of every config in this folder">Snapshots</button>
           <div class="cfg-list" id="cfgList"></div>
         </aside>
         <div class="cfg-main card">
           <div class="cfg-head">
             <div class="cfg-title"><b id="cfgName">Pick a config</b><small id="cfgPath">Backups are kept next to each file in .fikarunner-backups</small></div>
             <div class="spacer"></div>
+            <button class="ghost sm" id="cfgPin" disabled>☆ Pin</button>
+            <button class="ghost sm" id="cfgHistBtn" disabled title="Earlier saved versions of this file">History</button>
             <button class="ghost sm" id="cfgOpenDir" disabled>Folder</button>
             <button class="ghost sm" id="cfgRevert" disabled>Revert</button>
             <button class="primary sm" id="cfgSave" disabled>Save</button>
@@ -251,6 +268,39 @@
             <textarea id="cfgText" spellcheck="false" wrap="off" disabled></textarea>
           </div>
           <div class="cfg-status" id="cfgStatus"><span class="dot"></span><span id="cfgStatusText">No file open</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= HISTORY ======================= -->
+    <section class="page" id="page-history">
+      <div class="hist">
+        <div class="card hist-card">
+          <div class="card-head">
+            <h3>Sessions</h3>
+            <div class="spacer"></div>
+            <button class="ghost sm" id="histRefresh">Refresh</button>
+            <button class="primary sm" id="diagExport" title="Logs, versions, mod lists and checks in one zip. Profiles and the Discord webhook are left out.">Export diagnostics</button>
+          </div>
+          <div class="sessions" id="sessionList"><div class="empty">No sessions yet.</div></div>
+        </div>
+        <div class="card hist-card">
+          <div class="card-head">
+            <h3>Profile backups</h3>
+            <div class="spacer"></div>
+            <div class="seg mini" id="bkFilter">
+              <button data-src="all" class="on">All</button>
+              <button data-src="spt" title="Made by the SPT server itself">SPT</button>
+              <button data-src="app" title="Made by Fika Hub">Fika Hub</button>
+            </div>
+            <button class="ghost sm" id="bkOpen" title="Fika Hub's backup folder">Folder</button>
+            <button class="ghost sm" id="bkNow">Back up now</button>
+          </div>
+          <div class="backups" id="backupList"><div class="empty">No backups yet.</div></div>
+          <div class="bk-bar" id="bkBar">
+            <div class="bk-sel" id="bkSel">Pick a backup to load</div>
+            <button class="danger sm" id="bkLoad" disabled>Load backup</button>
+          </div>
         </div>
       </div>
     </section>
@@ -273,11 +323,59 @@
         </div>
 
         <div class="card set-card">
+          <h3>Connection</h3>
+          <div class="set-row">
+            <div class="set-label"><b>Your LAN address</b><small>Friends on your network connect here.</small></div>
+            <div class="path-box"><code id="connLan">-</code></div>
+            <div class="row-btns"><button class="ghost sm" id="connCopy">Copy</button><button class="ghost sm" id="connCheck">Check</button></div>
+          </div>
+          <div class="checks" id="connChecks"></div>
+          <div class="set-row">
+            <div class="set-label"><b>Join address</b><small>Where Game only mode connects. Leave empty for this PC.</small></div>
+            <div class="path-box"><input class="text-in" id="serverAddr" spellcheck="false" placeholder="127.0.0.1:6969"><small id="serverAddrNote"></small></div>
+            <button class="ghost sm" id="serverAddrTest">Test</button>
+          </div>
+        </div>
+
+        <div class="card set-card">
           <h3>Behaviour</h3>
           <label class="set-toggle"><div><b>Restart headless when it crashes</b><small>Waits 3 seconds, then brings it back.</small></div><span class="toggle"><input type="checkbox" data-set="autoRestartHeadless"><span></span></span></label>
           <label class="set-toggle"><div><b>Stop everything when the game closes</b><small>Host-only mode always keeps running.</small></div><span class="toggle"><input type="checkbox" data-set="stopWithGame"><span></span></span></label>
           <label class="set-toggle"><div><b>Minimize on launch</b><small>Gets the launcher out of the way.</small></div><span class="toggle"><input type="checkbox" data-set="minimizeOnLaunch"><span></span></span></label>
           <label class="set-toggle"><div><b>Warn about version mismatches</b><small>Asks before launching if SPT or Fika differ between installs.</small></div><span class="toggle"><input type="checkbox" data-set="warnMismatch"><span></span></span></label>
+        </div>
+
+        <div class="card set-card">
+          <h3>Before launch</h3>
+          <label class="set-toggle"><div><b>Check setup first</b><small>Stops to show problems before anything starts.</small></div><span class="toggle"><input type="checkbox" data-set="checkBeforeLaunch"><span></span></span></label>
+          <label class="set-toggle"><div><b>Back up profiles</b><small>Skipped when nothing changed since the last backup.</small></div><span class="toggle"><input type="checkbox" data-set="backupOnLaunch"><span></span></span></label>
+          <div class="set-toggle"><div><b>Automatic backups kept</b><small>Manual ones and ones made before a restore are never removed.</small></div><input class="text-in num" type="number" min="1" max="500" data-set-val="backupKeep"></div>
+        </div>
+
+        <div class="card set-card">
+          <h3>Scheduled restart</h3>
+          <label class="set-toggle"><div><b>Restart the server daily</b><small>Only a server started from here. Warns 5 minutes ahead in the log and on Discord.</small></div><span class="toggle"><input type="checkbox" data-set="restartEnabled"><span></span></span></label>
+          <div class="set-toggle"><div><b>Time</b><small id="nextRestartText">Local time on this PC.</small></div><input class="text-in num" type="time" data-set-val="restartTime"></div>
+          <label class="set-toggle"><div><b>Wait for raids to finish</b><small>Holds the restart for up to 30 minutes while raids run.</small></div><span class="toggle"><input type="checkbox" data-set="restartWaitRaids"><span></span></span></label>
+        </div>
+
+        <div class="card set-card">
+          <h3>Discord</h3>
+          <label class="set-toggle"><div><b>Post server status</b><small>One message that's edited in place: players, where they are, raids, next restart.</small></div><span class="toggle"><input type="checkbox" data-set="discordEnabled"><span></span></span></label>
+          <div class="set-row">
+            <div class="set-label"><b>Webhook URL</b><small>Channel settings, Integrations, Webhooks.</small></div>
+            <div class="path-box"><input class="text-in" type="password" data-set-val="discordWebhook" spellcheck="false" placeholder="https://discord.com/api/webhooks/..."></div>
+            <button class="ghost sm" id="discordTest">Send now</button>
+          </div>
+          <div class="set-toggle"><div><b>Update every (minutes)</b><small>Also updates right away when the server goes up or down.</small></div><input class="text-in num" type="number" min="1" max="120" data-set-val="discordInterval"></div>
+          <label class="set-toggle"><div><b>Restart announcements</b><small>Separate messages for the 5 minute warning and the restart.</small></div><span class="toggle"><input type="checkbox" data-set="discordEvents"><span></span></span></label>
+        </div>
+
+        <div class="card set-card">
+          <h3>Desktop notifications</h3>
+          <p class="muted small">Only shown while Fika Hub isn't the window in front.</p>
+          <label class="set-toggle"><div><b>Crashes</b><small>The headless or server goes down on its own.</small></div><span class="toggle"><input type="checkbox" data-set="notifyCrash"><span></span></span></label>
+          <label class="set-toggle"><div><b>Players</b><small>Someone connects to or leaves your server.</small></div><span class="toggle"><input type="checkbox" data-set="notifyPlayers"><span></span></span></label>
         </div>
 
         <div class="card set-card">
@@ -299,7 +397,7 @@
             <button class="ghost sm" data-open="mods">Server mods</button>
             <button class="ghost sm" data-open="profiles">Profiles</button>
           </div>
-          <p class="muted small about" id="aboutText">Fika Control</p>
+          <p class="muted small about" id="aboutText">Fika Hub</p>
         </div>
       </div>
     </section>
@@ -310,7 +408,7 @@
 <div class="overlay" id="setup" hidden>
   <div class="setup card">
     <img src="logo.png" alt="" class="setup-logo">
-    <h2>Set up Fika Control</h2>
+    <h2>Set up Fika Hub</h2>
     <p class="muted">Two folders and you're done.</p>
     <div class="setup-step" id="stepHost">
       <span class="step-n">1</span>
@@ -338,6 +436,28 @@
       <button class="ghost" id="modalNo">Cancel</button>
       <button class="primary" id="modalYes">OK</button>
     </div>
+  </div>
+</div>
+
+<!-- setup check -->
+<div class="overlay" id="checks" hidden>
+  <div class="modal card checks-modal">
+    <h3 id="checksTitle">Setup check</h3>
+    <div class="check-list" id="checkList"></div>
+    <div class="modal-actions">
+      <button class="ghost" id="checksRerun">Check again</button>
+      <div class="spacer"></div>
+      <button class="ghost" id="checksClose">Close</button>
+      <button class="primary" id="checksLaunch" hidden>Launch anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- snapshots / file history -->
+<div class="overlay" id="drawer" hidden>
+  <div class="drawer card">
+    <div class="drawer-head"><h3 id="drawerTitle"></h3><div class="spacer"></div><button class="ghost sm" id="drawerClose">Close</button></div>
+    <div class="drawer-body" id="drawerBody"></div>
   </div>
 </div>
 

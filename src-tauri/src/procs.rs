@@ -1,7 +1,9 @@
 use crate::install::{self, norm};
 use crate::logs::{GAME, HEADLESS, SERVER};
+use crate::history::record;
 use crate::Core;
 use serde::Serialize;
+use serde_json::json;
 use std::io::BufRead;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -22,6 +24,11 @@ pub struct Stack {
     pub gen: AtomicU64,
     pub restarts: AtomicU32,
     pub force_restart: AtomicBool,
+    /// user stopped the headless on purpose, so the supervisor must not bring it back
+    pub headless_hold: AtomicBool,
+    pub supervising: AtomicBool,
+    pub restarting: AtomicBool,
+    pub headless_plan: Mutex<Option<(PathBuf, String, u16)>>,
     pub stage: Mutex<(String, u8)>,
     pub mode: Mutex<String>,
     pub sys: Mutex<Option<System>>,
@@ -51,6 +58,8 @@ pub struct Status {
     pub headless: ProcInfo,
     pub game: ProcInfo,
     pub restarts: u32,
+    pub headless_held: bool,
+    pub can_start_headless: bool,
 }
 
 fn alive(core: &Core, my: u64) -> bool {
@@ -62,11 +71,11 @@ fn set_stage(core: &Core, s: &str, p: u8) {
 }
 
 fn note(core: &Core, idx: usize, msg: &str) {
-    core.logs.push_line(idx, format!("[Fika Control] {msg}"));
+    core.logs.push_line(idx, format!("[Fika Hub] {msg}"));
 }
 
-fn backend_args(token: &str, port: u16) -> String {
-    format!("-token={token} -config={{'BackendUrl':'https://127.0.0.1:{port}','Version':'live','MatchingVersion':'live'}}")
+fn backend_args(token: &str, addr: &str) -> String {
+    format!("-token={token} -config={{'BackendUrl':'https://{addr}','Version':'live','MatchingVersion':'live'}}")
 }
 
 fn child_alive(slot: &Mutex<Option<Child>>) -> bool {
@@ -103,9 +112,16 @@ fn close_game(slot: &Mutex<Option<Child>>) {
     kill_slot(slot);
 }
 
-pub fn stop_all(core: &Core) {
-    core.stack.active.store(false, SeqCst);
+fn exit_code(slot: &Mutex<Option<Child>>) -> Option<i32> {
+    slot.lock().unwrap().take().and_then(|mut c| c.try_wait().ok().flatten()).and_then(|s| s.code())
+}
+
+pub fn stop_all(core: &Core, why: &str) {
+    if core.stack.active.swap(false, SeqCst) {
+        record("stop", json!({ "why": why }));
+    }
     core.stack.gen.fetch_add(1, SeqCst);
+    core.stack.supervising.store(false, SeqCst);
     close_game(&core.stack.game);
     kill_slot(&core.stack.headless);
     kill_slot(&core.stack.server);
@@ -154,7 +170,38 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
             }
         });
     }
+    let pid = child.id();
     *core.stack.server.lock().unwrap() = Some(child);
+    if !core.stack.active.load(SeqCst) {
+        kill_slot(&core.stack.server);
+        return Err("Stopped while the server was starting.".into());
+    }
+    core.logs.mark_run(SERVER, "server started");
+
+    // A restart or stop takes the child out of the slot first, so only an exit
+    // that leaves this exact child behind is a crash.
+    let c = core.clone();
+    let my = c.stack.gen.load(SeqCst);
+    std::thread::spawn(move || {
+        let code = loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let mut g = c.stack.server.lock().unwrap();
+            match g.as_mut() {
+                Some(ch) if ch.id() == pid => {
+                    if let Ok(Some(st)) = ch.try_wait() {
+                        break st.code();
+                    }
+                }
+                _ => return,
+            }
+        };
+        if !alive(&c, my) || c.stack.stage.lock().unwrap().1 < 100 {
+            return;
+        }
+        let code_txt = code.map(|x| x.to_string()).unwrap_or_else(|| "?".into());
+        note(&c, SERVER, &format!("SPT server exited on its own (exit code {code_txt})."));
+        record("server_crash", json!({ "code": code }));
+    });
     Ok(())
 }
 
@@ -168,13 +215,40 @@ fn spawn_eft(dir: &Path, args: &str, hidden: bool) -> Result<Child, String> {
 }
 
 fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, port: u16) {
-    std::thread::spawn(move || loop {
+    *core.stack.headless_plan.lock().unwrap() = Some((host.clone(), token.clone(), port));
+    core.stack.headless_hold.store(false, SeqCst);
+    core.stack.supervising.store(true, SeqCst);
+    std::thread::spawn(move || {
+        supervise_loop(&core, my, &host, &token, port);
+        if core.stack.gen.load(SeqCst) == my {
+            core.stack.supervising.store(false, SeqCst);
+        }
+    });
+}
+
+fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16) {
+    let core = core.clone();
+    loop {
         if !alive(&core, my) {
             return;
         }
-        let args = format!("{} -nographics -batchmode", backend_args(&token, port));
-        match spawn_eft(&host, &args, true) {
-            Ok(c) => *core.stack.headless.lock().unwrap() = Some(c),
+        // after a server restart the headless would just fail to connect, so hold it until the port is back
+        while !install::port_listening(port) {
+            if !alive(&core, my) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let args = format!("{} -nographics -batchmode", backend_args(token, &format!("127.0.0.1:{port}")));
+        match spawn_eft(host, &args, true) {
+            Ok(c) => {
+                *core.stack.headless.lock().unwrap() = Some(c);
+                // a stop may have emptied the slot between the spawn and here
+                if !alive(&core, my) {
+                    kill_slot(&core.stack.headless);
+                    return;
+                }
+            }
             Err(e) => {
                 note(&core, HEADLESS, &e);
                 return;
@@ -186,11 +260,17 @@ fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, po
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        core.stack.headless.lock().unwrap().take();
+        let code = exit_code(&core.stack.headless);
         if !alive(&core, my) {
             return;
         }
+        if core.stack.headless_hold.load(SeqCst) {
+            note(&core, HEADLESS, "Headless stopped.");
+            record("headless_stop", json!({}));
+            return;
+        }
         let forced = core.stack.force_restart.swap(false, SeqCst);
+        record(if forced { "headless_restart" } else { "headless_crash" }, json!({ "code": code }));
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
             return;
@@ -201,7 +281,29 @@ fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, po
         if !forced {
             core.stack.restarts.fetch_add(1, SeqCst);
         }
-    });
+    }
+}
+
+pub fn stop_headless(core: &Core) -> Result<(), String> {
+    if !child_alive(&core.stack.headless) {
+        return Err("The headless isn't running from here.".into());
+    }
+    core.stack.headless_hold.store(true, SeqCst);
+    kill_slot(&core.stack.headless);
+    Ok(())
+}
+
+pub fn start_headless(core: &Arc<Core>) -> Result<(), String> {
+    if !core.stack.active.load(SeqCst) {
+        return Err("Start the stack first.".into());
+    }
+    if core.stack.supervising.load(SeqCst) {
+        return Err("The headless is already running.".into());
+    }
+    let (host, token, port) = core.stack.headless_plan.lock().unwrap().clone().ok_or("No headless profile on the host.")?;
+    note(core, HEADLESS, "Starting headless...");
+    supervise_headless(core.clone(), core.stack.gen.load(SeqCst), host, token, port);
+    Ok(())
 }
 
 pub fn apply_display_mode(player: &Path, mode: &str) {
@@ -239,10 +341,10 @@ pub fn apply_display_mode(player: &Path, mode: &str) {
     }
 }
 
-pub fn start_game(core: &Arc<Core>, my: u64, player: &Path, profile: &str, port: u16) -> Result<(), String> {
+pub fn start_game(core: &Arc<Core>, my: u64, player: &Path, profile: &str, addr: &str) -> Result<(), String> {
     let mode = core.settings.lock().unwrap().display_mode.clone();
     apply_display_mode(player, &mode);
-    let child = spawn_eft(player, &backend_args(profile, port), false)?;
+    let child = spawn_eft(player, &backend_args(profile, addr), false)?;
     *core.stack.game.lock().unwrap() = Some(child);
     note(core, GAME, "Game started.");
 
@@ -254,14 +356,15 @@ pub fn start_game(core: &Arc<Core>, my: u64, player: &Path, profile: &str, port:
             }
             std::thread::sleep(Duration::from_millis(1000));
         }
-        c.stack.game.lock().unwrap().take();
+        let code = exit_code(&c.stack.game);
         if !alive(&c, my) {
             return;
         }
+        record("game_exit", json!({ "code": code }));
         let host_mode = c.stack.mode.lock().unwrap().as_str() == "host";
         if c.settings.lock().unwrap().stop_with_game && !host_mode {
             note(&c, GAME, "Game closed, shutting the stack down.");
-            stop_all(&c);
+            stop_all(&c, "game closed");
         } else {
             note(&c, GAME, "Game closed. Server and headless keep running.");
         }
@@ -276,6 +379,8 @@ pub struct LaunchPlan {
     pub profile: Option<String>,
     pub headless_id: Option<String>,
     pub port: u16,
+    /// host:port the game connects to. Only differs from 127.0.0.1 in game-only mode.
+    pub addr: String,
 }
 
 pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
@@ -284,13 +389,14 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
     }
     let my = core.stack.gen.fetch_add(1, SeqCst) + 1;
     core.stack.restarts.store(0, SeqCst);
+    *core.stack.headless_plan.lock().unwrap() = None;
     *core.stack.mode.lock().unwrap() = plan.mode.clone();
     set_stage(&core, "Starting", 5);
 
     std::thread::spawn(move || {
         let fail = |msg: &str| {
             note(&core, SERVER, msg);
-            stop_all(&core);
+            stop_all(&core, "launch failed");
         };
         let wants_server = plan.mode != "join";
         let wants_game = plan.mode != "host";
@@ -308,7 +414,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
                 set_stage(&core, "Waiting for server", 35);
                 if !wait_port(&core, my, plan.port, true) {
                     if alive(&core, my) {
-                        stop_all(&core);
+                        stop_all(&core, "server didn't come up");
                     }
                     return;
                 }
@@ -320,9 +426,9 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
             }
         } else {
             set_stage(&core, "Waiting for server", 35);
-            if !wait_port(&core, my, plan.port, false) {
+            if !wait_remote(&core, my, &plan.addr) {
                 if alive(&core, my) {
-                    stop_all(&core);
+                    stop_all(&core, "server unreachable");
                 }
                 return;
             }
@@ -330,7 +436,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
 
         if wants_game && alive(&core, my) {
             set_stage(&core, "Launching game", 85);
-            if let Err(e) = start_game(&core, my, plan.player.as_ref().unwrap(), plan.profile.as_deref().unwrap_or(""), plan.port) {
+            if let Err(e) = start_game(&core, my, plan.player.as_ref().unwrap(), plan.profile.as_deref().unwrap_or(""), &plan.addr) {
                 return fail(&e);
             }
         }
@@ -341,13 +447,84 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
     Ok(())
 }
 
+/// Game-only mode may point at another PC, where the local TCP table says nothing.
+fn wait_remote(core: &Core, my: u64, addr: &str) -> bool {
+    let start = Instant::now();
+    let mut said = false;
+    while start.elapsed() < Duration::from_secs(600) {
+        if !alive(core, my) {
+            return false;
+        }
+        if install::reachable(addr, Duration::from_secs(2)) {
+            return true;
+        }
+        if !said {
+            note(core, SERVER, &format!("Waiting for the server at {addr}..."));
+            said = true;
+        }
+        std::thread::sleep(Duration::from_millis(1000));
+    }
+    note(core, SERVER, &format!("Couldn't reach {addr} within 10 minutes."));
+    false
+}
+
 pub fn current_gen(core: &Core) -> u64 {
     core.stack.gen.load(SeqCst)
 }
 
 pub fn restart_headless(core: &Core) {
-    core.stack.force_restart.store(true, SeqCst);
-    kill_slot(&core.stack.headless);
+    if child_alive(&core.stack.headless) {
+        core.stack.force_restart.store(true, SeqCst);
+        kill_slot(&core.stack.headless);
+    }
+}
+
+/// Restarts only the server. The headless goes down with it and comes back once
+/// the port is open again, since it can't survive losing its backend.
+pub fn restart_server(core: &Arc<Core>, by: &str) -> Result<(), String> {
+    if core.stack.restarting.compare_exchange(false, true, SeqCst, SeqCst).is_err() {
+        return Err("The server is already restarting.".into());
+    }
+    let r = restart_server_inner(core, by);
+    core.stack.restarting.store(false, SeqCst);
+    r
+}
+
+fn restart_server_inner(core: &Arc<Core>, by: &str) -> Result<(), String> {
+    if !core.stack.active.load(SeqCst) || !child_alive(&core.stack.server) {
+        return Err("The server wasn't started from here.".into());
+    }
+    let host = crate::host_dir(&core.settings.lock().unwrap()).ok_or("Host install isn't set.")?;
+    let port = install::server_port(&host);
+    let my = core.stack.gen.load(SeqCst);
+
+    note(core, SERVER, "Restarting server...");
+    record("server_restart", json!({ "by": by }));
+    set_stage(core, "Restarting server", 35);
+    kill_slot(&core.stack.server);
+    if core.stack.headless.lock().unwrap().is_some() {
+        core.stack.force_restart.store(true, SeqCst);
+        kill_slot(&core.stack.headless);
+    }
+    let gone = Instant::now();
+    while install::port_listening(port) && gone.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    if let Err(e) = spawn_server(core, &host) {
+        note(core, SERVER, &e);
+        stop_all(core, "restart failed");
+        return Err(e);
+    }
+
+    let c = core.clone();
+    std::thread::spawn(move || {
+        if wait_port(&c, my, port, true) {
+            set_stage(&c, "Running", 100);
+        } else if alive(&c, my) {
+            stop_all(&c, "server didn't come back after restart");
+        }
+    });
+    Ok(())
 }
 
 pub fn status(core: &Core) -> Status {
@@ -413,5 +590,9 @@ pub fn status(core: &Core) -> Status {
         headless: info(own_headless, &headless_exe),
         game: info(own_game, &game_exe),
         restarts: core.stack.restarts.load(SeqCst),
+        headless_held: core.stack.headless_hold.load(SeqCst),
+        can_start_headless: core.stack.active.load(SeqCst)
+            && !core.stack.supervising.load(SeqCst)
+            && core.stack.headless_plan.lock().unwrap().is_some(),
     }
 }

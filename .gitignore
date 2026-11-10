@@ -1,2 +1,4 @@
 ﻿src-tauri/target/
 publish/
+src-tauri/gen/
+*.md

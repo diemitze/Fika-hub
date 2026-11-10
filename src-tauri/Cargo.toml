@@ -1,5 +1,5 @@
 [package]
-name = "fika-control"
+name = "fika-hub"
 version = "1.0.0"
 edition = "2021"
 authors = ["20fpsguy"]
@@ -17,12 +17,15 @@ tokio = { version = "1", features = ["macros"] }
 flate2 = "1"
 sysinfo = "0.33"
 winreg = "0.52"
+tauri-winrt-notification = "0.7"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    "Win32_System_SystemInformation",
 ] }
 
 [features]

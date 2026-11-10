@@ -11,6 +11,9 @@ pub const GAME: usize = 2;
 
 const CAP: usize = 6000;
 
+/// The UI splits a stream into runs at this line, so counts and history are per run.
+pub const RUN_MARK: &str = "[Fika Hub] New run: ";
+
 #[derive(Default)]
 struct Stream {
     lines: VecDeque<(u64, String)>,
@@ -93,6 +96,15 @@ impl Logs {
         Chunk { lines, reset }
     }
 
+    pub fn dump(&self, idx: usize) -> String {
+        let s = self.streams[idx].lock().unwrap();
+        s.lines.iter().map(|l| l.1.as_str()).collect::<Vec<_>>().join("\n")
+    }
+
+    pub fn mark_run(&self, idx: usize, why: &str) {
+        self.push_line(idx, format!("{RUN_MARK}{why}"));
+    }
+
     pub fn clear(&self, idx: usize) {
         let mut s = self.streams[idx].lock().unwrap();
         s.lines.clear();
@@ -152,6 +164,9 @@ pub fn tail(logs: Arc<Logs>, idx: usize, path_fn: impl Fn() -> Option<PathBuf> +
             let mut buf = vec![0u8; want];
             if f.seek(SeekFrom::Start(start)).is_err() {
                 continue;
+            }
+            if start == 0 {
+                logs.mark_run(idx, "log file restarted");
             }
             let read = f.read(&mut buf).unwrap_or(0);
             pos = Some(start + read as u64);
