@@ -1,8 +1,8 @@
 "use strict";
 
 const T = window.__TAURI__;
-const invoke = T ? T.core.invoke : (cmd, args) => mock(cmd, args);
-const appWindow = T ? T.window.getCurrentWindow() : null;
+const invoke = T.core.invoke;
+const appWindow = T.window.getCurrentWindow();
 const $ = (id) => document.getElementById(id);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -685,32 +685,5 @@ async function saveConfig() {
   } catch (e) { cfgStatus("bad", String(e)); toast("Not saved", true); }
 }
 $("cfgSave").onclick = saveConfig;
-
-// ============================ preview mock ============================
-// Lets the UI render in a plain browser for design work; never used inside the app.
-
-function mock(cmd) {
-  const now = Date.now() / 1000;
-  const t = (mock.t = (mock.t || 0) + 1);
-  const proc = (on, ram, owned = true) => ({ running: on, owned, pid: 1, cpu: on ? 8 + Math.random() * 20 : 0, ram: on ? ram + Math.random() * 2e8 : 0, uptime: on ? 3600 + t : 0 });
-  const data = {
-    boot: { hostDir: "C:\\SPT-Host", hostFromExe: true, hostProblem: null, playerDir: "C:\\SPT-Game", playerProblem: null, appVersion: "1.0.0",
-      settings: { launchMode: "full", lastProfile: "a", autoRestartHeadless: true, stopWithGame: true, minimizeOnLaunch: false, warnMismatch: true, displayMode: "Borderless Fullscreen" },
-      versions: { sptHost: "4.1.4", sptPlayer: "4.1.4", fikaHost: "2.1.2", fikaPlayer: "2.1.2" } },
-    list_profiles: [
-      { id: "a", username: "test", nickname: "Kestrel", side: "Usec", edition: "Unheard", level: 31, prestige: 1, raids: 100, survived: 67, kills: 441, deaths: 32, pmcKills: 128, bossKills: 34, scavKills: 279, headshots: 244, winStreak: 1, longestStreak: 9, lifetimeSecs: 97527, roubles: 12450000, lastSession: now - 7200, headless: false, valid: true, savedAgo: 40 },
-      { id: "h", username: "headless_x", nickname: "headless_x", headless: true, valid: true },
-    ],
-    status: { active: true, mode: "full", stage: "Running", progress: 100, portOpen: true, port: 6969, restarts: 1, server: proc(true, 2.1e9), headless: proc(true, 5.4e9), game: proc(true, 11e9) },
-    lobby: { online: true, version: "2.1.2", raids: [{ host: "Kestrel", location: "bigmap", side: 0, status: 1, players: 2, headless: true }, { host: "Moth", location: "Lighthouse", side: 1, status: 0, players: 1, headless: true }],
-      players: [{ nickname: "Kestrel", level: 31, activity: 1, since: now - 900, location: "bigmap" }, { nickname: "Moth", level: 18, activity: 0, since: now - 120 }, { nickname: "Wren", level: 44, activity: 3, since: now - 2400 }] },
-    logs_since: { reset: false, lines: t % 3 ? [] : [[t, ["[12:01:44] Server is listening on 6969", "[12:01:45] [Warning] Mod X uses an old API", "[12:01:46] [Error] Failed to load bundle foo", "[12:01:47] Loaded 92 mods"][t % 4]]] },
-    config_roots: [{ key: "server", label: "Server mods", path: "x", exists: true }, { key: "headless", label: "Headless BepInEx", path: "y", exists: true }, { key: "game", label: "Game BepInEx", path: "z", exists: true }],
-    config_list: [{ group: "SAIN", rel: "SAIN\\config.json", name: "config.json", size: 1 }, { group: "fika-server", rel: "fika-server\\assets\\configs\\fika.jsonc", name: "fika.jsonc", size: 1 }],
-    config_read: { text: '{\n  "enabled": true,\n  "difficulty": 3\n}\n', stamp: "s", readOnly: null },
-    config_validate: "Valid JSON.",
-  };
-  return Promise.resolve(structuredClone(data[cmd] ?? null));
-}
 
 boot();
