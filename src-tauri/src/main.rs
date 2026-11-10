@@ -14,6 +14,7 @@ mod profiles;
 mod schedule;
 mod settings;
 mod snapshots;
+mod ui_state;
 
 use serde::Serialize;
 use settings::Settings;
@@ -515,8 +516,19 @@ fn config_save(core: Ctx, root: String, rel: String, text: String, stamp: String
 async fn quit(core: Ctx<'_>, app: tauri::AppHandle) -> Result<(), String> {
     let c = core.inner().clone();
     let _ = tauri::async_runtime::spawn_blocking(move || procs::stop_all(&c, "quit")).await;
+    ui_state::flush();
     app.exit(0);
     Ok(())
+}
+
+#[tauri::command]
+fn ui_state_get() -> serde_json::Value {
+    ui_state::get()
+}
+
+#[tauri::command]
+fn ui_state_set(ui: serde_json::Value) {
+    ui_state::set(ui);
 }
 
 fn main() {
@@ -544,10 +556,13 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(core)
-        .on_window_event(move |_, event| {
-            if let tauri::WindowEvent::Destroyed = event {
+        .on_window_event(move |window, event| match event {
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => ui_state::track(window),
+            tauri::WindowEvent::Destroyed => {
+                ui_state::flush();
                 procs::stop_all(&on_close, "window closed");
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             boot,
@@ -594,10 +609,15 @@ fn main() {
             config_read,
             config_validate,
             config_save,
-            quit
+            quit,
+            ui_state_get,
+            ui_state_set
         ])
         .setup(|app| {
             if let Some(w) = app.get_webview_window("main") {
+                // hidden in the config so the restored size doesn't visibly jump
+                ui_state::restore(&w);
+                let _ = w.show();
                 let _ = w.set_focus();
             }
             Ok(())

@@ -29,6 +29,9 @@ const state = {
   logSeq: [-1, -1, -1],
   logErr: [0, 0, 0],
   logSeen: [0, 0, 0],
+  logBad: [0, 0, 0],
+  badSeen: [0, 0, 0],
+  bootPhase: null,
   runs: [[], [], []],
   runView: ["current", "current", "current"],
   stream: 0,
@@ -113,10 +116,11 @@ function goto(page) {
   $$(".rail-btn").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   moveRailInd();
   $$(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + page));
-  if (page === "console") { state.logSeen = [...state.logErr]; renderRuns(); renderLog(true); updateBadges(); }
+  if (page === "console") { state.logSeen = [...state.logErr]; state.badSeen[state.stream] = state.logBad[state.stream]; renderRuns(); renderLog(true); updateBadges(); }
   if (page === "configs" && !state.cfg.root) loadConfigRoots();
   if (page === "settings") { loadConnection(); loadNextRestart(); }
   if (page === "history") loadHistory();
+  saveUi();
 }
 $$(".rail-btn").forEach((b) => (b.onclick = () => goto(b.dataset.page)));
 
@@ -152,6 +156,7 @@ $$("[data-goto-log]").forEach((b) => (b.onclick = () => { setStream(+b.dataset.g
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === "s" && state.page === "configs") { e.preventDefault(); saveConfig(); }
   if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "console") { e.preventDefault(); $("logSearch").focus(); }
+  if (e.ctrlKey && e.key.toLowerCase() === "f" && state.page === "configs") { e.preventDefault(); $(state.cfgView === "raw" ? "cfgFind" : "cfgKeySearch").focus(); }
   if (e.key === "Escape") $("whoMenu").hidden = true;
 });
 
@@ -164,6 +169,7 @@ async function boot() {
   state.mode = b.settings.launchMode || "full";
   state.profileId = b.settings.lastProfile;
   renderMode();
+  await restoreUi();
   if (b.hostProblem) showSetup();
   await refreshProfiles();
   loadConnection();
@@ -172,6 +178,42 @@ async function boot() {
   setInterval(pollLogs, 500);
   setInterval(pollLobby, 3000);
   setInterval(refreshProfiles, 15000);
+}
+
+// ---- remembered UI state (ui.json next to settings) ----
+const UI_TOGGLES = ["logWrap", "logQuiet", "logFollow", "cfgAll"];
+let uiReady = false, uiT;
+function saveUi() {
+  if (!uiReady) return;
+  clearTimeout(uiT);
+  uiT = setTimeout(() => {
+    const ui = { page: state.page, stream: state.stream, level: state.level, cfgRoot: state.cfg.root, bkSrc: state.bk.src, cfgView: state.cfgView };
+    UI_TOGGLES.forEach((id) => (ui[id] = $(id).checked));
+    invoke("ui_state_set", { ui }).catch(() => {});
+  }, 400);
+}
+UI_TOGGLES.forEach((id) => $(id).addEventListener("change", saveUi));
+
+async function restoreUi() {
+  const ui = (await invoke("ui_state_get").catch(() => null)) || {};
+  UI_TOGGLES.forEach((id) => typeof ui[id] === "boolean" && ($(id).checked = ui[id]));
+  $("logView").classList.toggle("wrap", $("logWrap").checked);
+  if (["all", "warn", "error", "context"].includes(ui.level)) {
+    state.level = ui.level;
+    $$("#levelSeg button").forEach((x) => x.classList.toggle("on", x.dataset.level === ui.level));
+  }
+  if ([0, 1, 2].includes(ui.stream)) {
+    state.stream = ui.stream;
+    $$(".tab").forEach((t) => t.classList.toggle("active", +t.dataset.stream === ui.stream));
+  }
+  if (typeof ui.cfgRoot === "string") state.cfg.root = ui.cfgRoot;
+  if (ui.cfgView === "raw") setCfgView("raw");
+  if (["all", "spt", "app"].includes(ui.bkSrc)) {
+    state.bk.src = ui.bkSrc;
+    $$("#bkFilter button").forEach((x) => x.classList.toggle("on", x.dataset.src === ui.bkSrc));
+  }
+  if (ui.page && ui.page !== "dashboard" && $("page-" + ui.page)) goto(ui.page);
+  uiReady = true;
 }
 
 function applyBoot(b) {
@@ -379,18 +421,17 @@ function renderOperator() {
   $("opSide").textContent = (p.side || "-").toUpperCase();
   $("opSide").className = "side-tag " + (p.side || "").toLowerCase();
   $("opSr").textContent = sr === null ? "-" : sr + "%";
-  $("opRingFg").style.strokeDashoffset = 97.4 - (97.4 * (sr || 0)) / 100;
   $("opRaids").textContent = `${p.survived} of ${p.raids} raids`;
   $("opLast").textContent = "Last raid " + ago(p.lastSession);
   $("opKd").textContent = kd;
-  $("opKills").textContent = human(p.kills);
+  $("opKills").textContent = `${human(p.kills)} kills, ${human(p.deaths)} deaths`;
   $("opPmc").textContent = human(p.pmcKills);
   $("opBoss").textContent = human(p.bossKills);
-  $("opHs").textContent = human(p.headshots);
-  $("opStreak").textContent = p.winStreak + (p.longestStreak ? ` / ${p.longestStreak}` : "");
+  $("opHs").textContent = human(p.headshots) + (p.kills ? ` · ${Math.round((p.headshots / p.kills) * 100)}%` : "");
+  $("opStreak").textContent = p.longestStreak + (p.winStreak ? ` (now ${p.winStreak})` : "");
   $("opRub").textContent = "₽ " + human(p.roubles);
-  $("opTime").textContent = p.lifetimeSecs ? dur(p.lifetimeSecs).split(" ")[0] : "-";
-  $("opSaved").textContent = "Saved by server " + dur(p.savedAgo).split(" ")[0] + " ago";
+  $("opTime").textContent = p.lifetimeSecs ? dur(p.lifetimeSecs).split(" ").slice(0, 2).join(" ") : "-";
+  $("opSaved").textContent = "saved " + dur(p.savedAgo).split(" ")[0] + " ago";
   $("opInvalid").hidden = p.valid;
 }
 
@@ -483,17 +524,18 @@ async function pollStatus() {
   // launch button
   const go = $("goBtn");
   const busy = s.active && s.progress < 100;
+  const { booting, stageText, prog, meta } = bootInfo(s);
   go.classList.toggle("running", s.active);
   go.classList.toggle("busy", busy);
   $("goLabel").textContent = s.active ? "STOP" : "LAUNCH";
-  $("goSub").textContent = s.active ? (busy ? s.stage + "…" : MODE_TEXT[s.mode] + " running") : MODE_TEXT[state.mode];
-  $("goFill").style.width = s.active ? s.progress + "%" : "0";
+  $("goSub").textContent = s.active ? (booting ? `${stageText} · ${meta}` : busy ? s.stage + "…" : MODE_TEXT[s.mode] + " running") : MODE_TEXT[state.mode];
+  $("goFill").style.width = s.active ? prog + "%" : "0";
   $("whoBtn").classList.toggle("locked", s.active);
 
   // titlebar pill
   const ext = !s.active && (s.server.running || s.headless.running || s.game.running);
   const up = Math.max(s.server.uptime || 0, s.headless.uptime || 0, s.game.uptime || 0);
-  if (busy) setPill("busy", s.stage, s.progress + "%", s.progress);
+  if (busy) setPill("busy", stageText, meta, prog);
   else if (s.active) setPill("live", "Live", `${MODE_TEXT[s.mode] || ""} · ${dur(up)}`, null);
   else if (ext) setPill("ext", "Running elsewhere", null, null);
   else setPill("", "Idle", null, null);
@@ -501,6 +543,19 @@ async function pollStatus() {
   document.body.classList.toggle("is-busy", busy);
 
   $$(".tab").forEach((t) => t.classList.toggle("live", s[STREAM_NAMES[+t.dataset.stream]].running));
+}
+
+// while the server boots, show what it's doing and how long the last boots took
+function bootInfo(s) {
+  const booting = s.active && s.progress < 100 && s.bootElapsed != null && !s.portOpen;
+  if (!booting) return { booting, stageText: s.stage, prog: s.progress, meta: s.progress + "%" };
+  const e = s.bootElapsed, x = s.bootExpect;
+  return {
+    booting,
+    stageText: state.bootPhase || "Booting server",
+    prog: Math.round(x ? 12 + 50 * Math.min(e / Math.max(x, 1), 0.97) : 12 + 50 * (1 - Math.exp(-e / 45))),
+    meta: x ? (x - e > 3 ? `~${fmtLeft(x - e)} left` : "almost ready") : fmtLeft(e),
+  };
 }
 
 function paintNode(el, p, key, s) {
@@ -512,7 +567,7 @@ function paintNode(el, p, key, s) {
   el.classList.toggle("wait", starting || serverWaiting);
   el.classList.toggle("off", !p.running && !starting);
   el.querySelector(".node-state").textContent =
-    serverWaiting ? "Booting…" : starting ? "Starting…" : p.running ? (p.owned ? "Online" : "Running elsewhere") : "Offline";
+    serverWaiting ? (bootInfo(s).booting ? `Booting · ${bootInfo(s).meta}` : "Booting…") : starting ? "Starting…" : p.running ? (p.owned ? "Online" : "Running elsewhere") : "Offline";
   el.querySelector(".v-up").textContent = p.running ? dur(p.uptime) : "-";
   el.querySelector(".v-cpu").textContent = p.running ? Math.round(p.cpu) + "%" : "-";
   el.querySelector(".v-ram").textContent = p.running ? bytes(p.ram) : "-";
@@ -611,6 +666,33 @@ const ROUTINE_RE = /\[(Client|WebSocket) Request\]/;
 const RUN_MARK = "[Fika Hub] New run: ";
 const CONTEXT = 3;
 
+// Only these light the rail badge: crashes and fatal errors, not the routine mod noise.
+const SERIOUS_RE = /^\[Fika Hub\] .*(exited|didn't|couldn't|failed)|unhandled exception|^\[(fatal|critical)\b|\]\[(fatal|critical)\]/i;
+
+// Turns a server output line into a short "what is it doing" label, or null to keep the last one.
+function phaseOf(text) {
+  let t = text.replace(/^\[\d{4}-[^\]]*\]/, "").replace(/^\[(information|warning|error|debug|trace|critical|fatal)\]/i, "");
+  let ns = null;
+  const m = t.match(/^\[([\w.]+)\]\s*/);
+  if (m && m[1].includes(".")) { ns = m[1]; t = t.slice(m[0].length); }
+  t = t.trim();
+  let x;
+  if (!t || /^[│┌└─]/.test(t) || ns?.includes("Watermark")) return null;
+  if ((x = t.match(/ModLoader: loading: (\d+)/))) return `Loading ${x[1]} mods`;
+  if (/^Mod: /.test(t)) return "Checking mods";
+  if (/Importing database/i.test(t)) return "Importing database";
+  if (/Database import (finished|took)/i.test(t)) return "Database ready";
+  if (/executing startup callbacks/i.test(t)) return "Starting up mods";
+  if (ns?.startsWith("SPTarkov.Server.Core.Services.Hosted")) return "Almost ready";
+  if ((x = t.match(/^\[([^\]]{2,30})\]/))) return "Loading " + x[1].replace(/^Manimal-/, "");
+  if (ns && !ns.startsWith("SPTarkov")) return "Loading " + ns.split(".")[0].replace(/^_/, "");
+  return null;
+}
+
+function fmtLeft(s) {
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
 function levelOf(line) {
   if (line.startsWith("[Fika Hub]")) return "mine";
   if (ERR_RE.test(line)) return "error";
@@ -630,7 +712,7 @@ async function pollLogs() {
     let c;
     try { c = await invoke("logs_since", { stream: i, after: state.logSeq[i] }); } catch { continue; }
     if (c.reset) {
-      state.logs[i] = []; state.logErr[i] = 0; state.logSeen[i] = 0; resetRuns(i);
+      state.logs[i] = []; state.logErr[i] = 0; state.logSeen[i] = 0; state.logBad[i] = state.badSeen[i] = 0; resetRuns(i);
       if (i === state.stream && state.page === "console") { renderRuns(); renderLog(true); }
     }
     if (!c.lines.length) continue;
@@ -641,10 +723,14 @@ async function pollLogs() {
         // each run gets its own error count, so a restarted headless starts clean
         state.runs[i].push({ id: curRun(i) + 1, label: text.slice(RUN_MARK.length), time: new Date() });
         state.logErr[i] = state.logSeen[i] = 0;
+        state.logBad[i] = state.badSeen[i] = 0;
+        if (i === 0) state.bootPhase = null;
         newRun = true;
       }
       const l = { text, lvl: levelOf(text), run: curRun(i) };
       if (l.lvl === "error") state.logErr[i]++;
+      if (SERIOUS_RE.test(text)) state.logBad[i]++;
+      if (i === 0) state.bootPhase = phaseOf(text) || state.bootPhase;
       watchLine(i, text);
       return l;
     });
@@ -656,7 +742,7 @@ async function pollLogs() {
       else appendLog(added);
     }
   }
-  if (state.page === "console") state.logSeen[state.stream] = state.logErr[state.stream];
+  if (state.page === "console") { state.logSeen[state.stream] = state.logErr[state.stream]; state.badSeen[state.stream] = state.logBad[state.stream]; }
   updateBadges();
 }
 
@@ -664,12 +750,13 @@ function updateBadges() {
   let total = 0;
   $$(".tab").forEach((t) => {
     const i = +t.dataset.stream;
-    const n = state.logErr[i] - state.logSeen[i];
     const badge = t.querySelector(".tab-err");
-    badge.hidden = state.logErr[i] === 0;
-    badge.textContent = state.logErr[i] > 999 ? "999+" : state.logErr[i];
-    badge.title = "Errors in the current run";
-    if (state.page !== "console" || i !== state.stream) total += Math.max(0, n);
+    const shown = Math.max(state.logErr[i], state.logBad[i]);
+    badge.hidden = shown === 0;
+    badge.textContent = shown > 999 ? "999+" : shown;
+    badge.title = state.logBad[i] ? "Something crashed or failed in this run" : "Errors in the current run, mostly harmless mod noise";
+    badge.classList.toggle("bad", state.logBad[i] > 0);
+    if (state.page !== "console" || i !== state.stream) total += Math.max(0, state.logBad[i] - state.badSeen[i]);
   });
   $("badgeConsole").hidden = total === 0;
   $("badgeConsole").textContent = total > 99 ? "99+" : total;
@@ -772,8 +859,10 @@ function renderRuns() {
 
 function setStream(i) {
   state.stream = i;
+  saveUi();
   $$(".tab").forEach((t) => t.classList.toggle("active", +t.dataset.stream === i));
   state.logSeen[i] = state.logErr[i];
+  state.badSeen[i] = state.logBad[i];
   renderRuns();
   renderLog(true);
   updateBadges();
@@ -781,6 +870,7 @@ function setStream(i) {
 $$(".tab").forEach((t) => (t.onclick = () => setStream(+t.dataset.stream)));
 $$("#levelSeg button").forEach((b) => (b.onclick = () => {
   state.level = b.dataset.level;
+  saveUi();
   $$("#levelSeg button").forEach((x) => x.classList.toggle("on", x === b));
   renderLog(true);
 }));
@@ -830,6 +920,7 @@ async function loadConfigRoots() {
 async function selectRoot(key) {
   if (!(await leaveDirty())) return;
   state.cfg.root = key;
+  saveUi();
   $$("#cfgRoots button").forEach((b) => b.classList.toggle("on", b.dataset.root === key));
   $("cfgList").innerHTML = `<div class="empty">Scanning…</div>`;
   state.cfg.entries = await invoke("config_list", { root: key, all: $("cfgAll").checked }).catch(() => []);
@@ -898,29 +989,40 @@ async function leaveDirty() {
 
 async function openConfig(rel) {
   if (state.cfg.open !== rel && !(await leaveDirty())) return;
+  const root = state.cfg.root;
   let doc;
-  try { doc = await invoke("config_read", { root: state.cfg.root, rel }); }
+  try { doc = await invoke("config_read", { root, rel }); }
   catch (e) { return cfgStatus("bad", String(e)); }
   state.cfg.open = rel;
-  state.cfg.openRoot = state.cfg.root;
+  state.cfg.openRoot = root;
   const key = cfgKey(rel);
   state.settings.recentConfigs = [key, ...(state.settings.recentConfigs || []).filter((k) => k !== key)].slice(0, 12);
   saveSettings();
   renderPin();
   state.cfg.stamp = doc.stamp;
-  state.cfg.original = doc.text;
+  state.cfg.crlf = doc.text.includes("\r\n") && !/(^|[^\r])\n/.test(doc.text);
+  state.cfg.findLine = null;
+  $("cfgFind").value = "";
+  $("cfgFindCount").textContent = "";
+  state.cfg.original = doc.text.replace(/\r\n?/g, "\n");
   const ta = $("cfgText");
-  ta.value = doc.text;
+  ta.value = state.cfg.original;
   ta.disabled = !!doc.readOnly;
+  state.cfg.readOnly = doc.readOnly || null;
   ta.scrollTop = 0;
   $("cfgName").textContent = rel.split("\\").pop();
   $("cfgPath").textContent = rel;
   $("cfgOpenDir").disabled = false;
+  state.cfg.errLine = null;
+  $("cfgKeySearch").value = "";
+  state.cfg.collapsed = new Set();
+  state.cfg.base = plainJson(state.cfg.original);
   updateGutter();
   renderCfgList();
   if (doc.readOnly) cfgStatus("bad", doc.readOnly);
   else validateCfg();
   updateCfgButtons();
+  cfgRefresh();
 }
 
 function cfgStatus(kind, text) {
@@ -934,9 +1036,10 @@ function updateCfgButtons() {
 }
 function updateGutter() {
   const n = $("cfgText").value.split("\n").length;
+  const err = state.cfg.errLine;
   let s = "";
-  for (let i = 1; i <= n; i++) s += i + "\n";
-  $("cfgGutter").textContent = s;
+  for (let i = 1; i <= n; i++) s += (i === err ? `<b>${i}</b>` : i) + "\n";
+  $("cfgGutter").innerHTML = s + " \n";
 }
 let valT;
 async function validateCfg() {
@@ -944,15 +1047,24 @@ async function validateCfg() {
   try {
     const msg = await invoke("config_validate", { rel: state.cfg.open, text: $("cfgText").value });
     cfgStatus(isDirty() ? "dirty" : "ok", (isDirty() ? "Unsaved · " : "") + msg);
-  } catch (e) { cfgStatus("bad", String(e)); }
+    setErrLine(null);
+  } catch (e) {
+    const m = String(e).match(/line (\d+), column (\d+)/);
+    cfgStatus("bad", m ? `Line ${m[1]}: ${String(e).replace(/^JSON error at line \d+, column \d+: /, "").replace(/ at line \d+ column \d+$/, "")}` : String(e));
+    setErrLine(m ? +m[1] : null);
+  }
 }
-$("cfgText").oninput = () => {
+$("cfgText").oninput = () => cfgTextChanged(false);
+function cfgTextChanged(fromForm) {
   updateGutter();
   updateCfgButtons();
   clearTimeout(valT);
   valT = setTimeout(validateCfg, 250);
-};
-$("cfgText").onscroll = () => ($("cfgGutter").scrollTop = $("cfgText").scrollTop);
+  scheduleHl();
+  if (!fromForm && state.cfgView === "form") renderForm();
+  if (fromForm) paintChanges();
+}
+$("cfgText").onscroll = syncScroll;
 $("cfgText").onkeydown = (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
@@ -961,19 +1073,374 @@ $("cfgText").onkeydown = (e) => {
     ta.oninput();
   }
 };
-$("cfgRevert").onclick = () => { $("cfgText").value = state.cfg.original; $("cfgText").oninput(); };
+$("cfgRevert").onclick = () => { if (state.cfg.readOnly) return; $("cfgText").value = state.cfg.original; $("cfgText").oninput(); };
 $("cfgOpenDir").onclick = () => call("open_folder", { which: state.cfg.openRoot + "|" + state.cfg.open }).catch(() => {});
 async function saveConfig() {
-  if (!isDirty()) return;
+  if (!isDirty() || state.cfg.readOnly) return;
   try {
-    state.cfg.stamp = await invoke("config_save", { root: state.cfg.openRoot, rel: state.cfg.open, text: $("cfgText").value, stamp: state.cfg.stamp });
-    state.cfg.original = $("cfgText").value;
+    const text = $("cfgText").value;
+    state.cfg.stamp = await invoke("config_save", { root: state.cfg.openRoot, rel: state.cfg.open, text: state.cfg.crlf ? text.replace(/\n/g, "\r\n") : text, stamp: state.cfg.stamp });
+    state.cfg.original = text;
+    state.cfg.base = plainJson(text);
+    paintChanges();
+    if (state.cfgView === "form") renderForm();
     updateCfgButtons();
     validateCfg();
     toast("Saved, backup kept");
   } catch (e) { cfgStatus("bad", String(e)); toast("Not saved", true); }
 }
 $("cfgSave").onclick = saveConfig;
+
+// ---- raw view: highlighting, error line, find, format ----
+const LINE_H = 20;
+const isJsonFile = () => /\.(json|jsonc|json5)$/i.test(state.cfg.open || "");
+const isIniFile = () => /\.(cfg|ini|conf|properties|toml)$/i.test(state.cfg.open || "");
+
+// null when the text isn't plain JSON (comments, errors), since the form would rewrite it
+function plainJson(text) {
+  if (!isJsonFile()) return null;
+  try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; }
+}
+// Number keys get reordered, duplicate keys merged and huge integers rounded by JSON.parse, so the form stays off for those.
+// 1.0 vs 1 is fine, it's the same value to the mod.
+const canon = (t) => t.replace(/("(?:\\.|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\s+/g, (m, str, num) =>
+  str ? str : num ? (/^-?\d+$/.test(num) && !Number.isSafeInteger(Number(num)) ? "#BIG" + num : String(Number(num))) : "");
+function roundTrips(text, v) {
+  return canon(text) === JSON.stringify(v);
+}
+
+const JSON_TOK = /("(?:\\.|[^"\\\n])*")(\s*:)?|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\],:])/g;
+function hlJson(t) {
+  let out = "", last = 0, m;
+  JSON_TOK.lastIndex = 0;
+  while ((m = JSON_TOK.exec(t))) {
+    out += esc(t.slice(last, m.index));
+    if (m[1]) out += `<span class="${m[2] ? "k" : "s"}">${esc(m[1])}</span>` + (m[2] ? `<span class="p">${esc(m[2])}</span>` : "");
+    else if (m[3]) out += `<span class="c">${esc(m[3])}</span>`;
+    else if (m[4]) out += `<span class="n">${m[4]}</span>`;
+    else if (m[5]) out += `<span class="b">${m[5]}</span>`;
+    else out += `<span class="p">${esc(m[6])}</span>`;
+    last = JSON_TOK.lastIndex;
+  }
+  return out + esc(t.slice(last));
+}
+function hlIni(t) {
+  return t.split("\n").map((l) => {
+    if (/^\s*[#;]/.test(l)) return `<span class="c">${esc(l)}</span>`;
+    if (/^\s*\[.*\]\s*$/.test(l)) return `<span class="sec">${esc(l)}</span>`;
+    const m = l.match(/^(\s*[^=:\n]+?)(\s*[=:]\s*)(.*)$/);
+    if (!m) return esc(l);
+    const v = /^(true|false)$/i.test(m[3].trim()) ? "b" : /^-?[\d.]+$/.test(m[3].trim()) ? "n" : "s";
+    return `<span class="k">${esc(m[1])}</span><span class="p">${esc(m[2])}</span><span class="${v}">${esc(m[3])}</span>`;
+  }).join("\n");
+}
+let hlT;
+function scheduleHl() { clearTimeout(hlT); hlT = setTimeout(paintHl, 40); }
+function paintHl() {
+  if (state.cfgView !== "raw") return;
+  const t = $("cfgText").value;
+  // past ~600 KB the colouring costs more than it helps
+  const html = t.length > 600000 ? esc(t) : isJsonFile() ? hlJson(t) : isIniFile() ? hlIni(t) : esc(t);
+  $("cfgHl").innerHTML = html + "\n\n";
+  syncScroll();
+}
+function syncScroll() {
+  const ta = $("cfgText");
+  $("cfgHl").scrollTop = ta.scrollTop;
+  $("cfgHl").scrollLeft = ta.scrollLeft;
+  $("cfgGutter").scrollTop = ta.scrollTop;
+  placeBand("cfgErrBand", state.cfg.errLine);
+  placeBand("cfgFindBand", state.cfg.findLine);
+}
+function placeBand(id, line) {
+  const el = $(id);
+  el.hidden = !line || state.cfgView !== "raw";
+  if (line) el.style.transform = `translateY(${12 + (line - 1) * LINE_H - $("cfgText").scrollTop}px)`;
+}
+function setErrLine(n) {
+  if (state.cfg.errLine === n) return;
+  state.cfg.errLine = n;
+  updateGutter();
+  syncScroll();
+}
+function scrollToLine(line) {
+  const ta = $("cfgText");
+  const y = (line - 1) * LINE_H;
+  if (y < ta.scrollTop || y > ta.scrollTop + ta.clientHeight - 60) ta.scrollTop = Math.max(0, y - ta.clientHeight / 3);
+  syncScroll();
+}
+const lineOf = (t, i) => t.slice(0, i).split("\n").length;
+
+// "bots › bosses › 2" for wherever the caret sits
+function crumbAt(t, pos) {
+  const stack = [];
+  let i = 0, pendingKey = null;
+  while (i < pos) {
+    const c = t[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < t.length && t[j] !== '"') j += t[j] === "\\" ? 2 : 1;
+      const str = t.slice(i + 1, j);
+      let k = j + 1;
+      while (k < t.length && /\s/.test(t[k])) k++;
+      if (t[k] === ":" && stack.length && stack[stack.length - 1].obj) stack[stack.length - 1].key = str;
+      i = j + 1;
+      continue;
+    }
+    if (c === "/" && t[i + 1] === "/") { while (i < pos && t[i] !== "\n") i++; continue; }
+    if (c === "{") stack.push({ obj: true, key: null });
+    else if (c === "[") stack.push({ obj: false, idx: 0 });
+    else if (c === "}" || c === "]") stack.pop();
+    else if (c === "," && stack.length && !stack[stack.length - 1].obj) stack[stack.length - 1].idx++;
+    i++;
+  }
+  return stack.map((f) => (f.obj ? f.key : String(f.idx))).filter((x) => x != null).join(" › ");
+}
+let crumbT;
+function updatePos() {
+  clearTimeout(crumbT);
+  crumbT = setTimeout(() => {
+    const ta = $("cfgText"), t = ta.value, p = ta.selectionStart;
+    const before = t.slice(0, p).split("\n");
+    $("cfgPos").textContent = state.cfg.open && state.cfgView === "raw" ? `Ln ${before.length}, Col ${before[before.length - 1].length + 1}` : "";
+    $("cfgCrumb").textContent = state.cfg.open && state.cfgView === "raw" && isJsonFile() && t.length < 600000 ? crumbAt(t, p) : "";
+  }, 60);
+}
+["keyup", "click", "select"].forEach((ev) => $("cfgText").addEventListener(ev, updatePos));
+
+$("cfgFormat").onclick = () => {
+  const t = $("cfgText").value;
+  let v;
+  try { v = JSON.parse(t); } catch {
+    return toast(state.cfg.errLine ? `Fix line ${state.cfg.errLine} first` : "This file has comments, Format would remove them", true);
+  }
+  if (!roundTrips(t, v)) return toast("Format would reorder keys or rewrite numbers in this file, so it's off here", true);
+  const out = JSON.stringify(v, null, indentOf(t)) + (t.endsWith("\n") ? "\n" : "");
+  if (out === t) return toast("Already formatted");
+  $("cfgText").value = out;
+  cfgTextChanged(false);
+  toast("Formatted");
+};
+function indentOf(t) {
+  const m = t.match(/\n([ \t]+)["{[\]}]/);
+  if (!m) return 4;
+  return m[1].includes("\t") ? "\t" : Math.min(m[1].length, 8);
+}
+
+function runFind(step) {
+  const q = $("cfgFind").value.toLowerCase();
+  const t = $("cfgText").value, low = t.toLowerCase();
+  if (!q) { state.cfg.findLine = null; $("cfgFindCount").textContent = ""; return syncScroll(); }
+  const hits = [];
+  for (let i = low.indexOf(q); i !== -1 && hits.length < 5000; i = low.indexOf(q, i + q.length)) hits.push(i);
+  if (!hits.length) { state.cfg.findLine = null; $("cfgFindCount").textContent = "No matches"; return syncScroll(); }
+  const ta = $("cfgText");
+  const from = step ? ta.selectionStart + (step > 0 ? 1 : -1) : ta.selectionStart;
+  let n = step < 0 ? hits.findLastIndex((h) => h < from) : hits.findIndex((h) => h >= from);
+  if (n === -1) n = step < 0 ? hits.length - 1 : 0;
+  ta.setSelectionRange(hits[n], hits[n] + q.length);
+  state.cfg.findLine = lineOf(t, hits[n]);
+  $("cfgFindCount").textContent = `${n + 1} of ${hits.length}`;
+  scrollToLine(state.cfg.findLine);
+}
+$("cfgFind").oninput = () => runFind(0);
+$("cfgFind").onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runFind(e.shiftKey ? -1 : 1); }
+  if (e.key === "Escape") { const ta = $("cfgText"); ta.focus(); state.cfg.findLine = null; syncScroll(); }
+};
+
+// ---- form view ----
+const getAt = (o, path) => path.reduce((v, k) => (v == null ? undefined : v[k]), o);
+function setAt(o, path, val) { getAt(o, path.slice(0, -1))[path[path.length - 1]] = val; }
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const isPrimArr = (v) => Array.isArray(v) && v.every((x) => x === null || typeof x !== "object");
+
+function formCommit() {
+  const t = $("cfgText").value;
+  const out = JSON.stringify(state.cfg.model, null, indentOf(state.cfg.original)) + (state.cfg.original.endsWith("\n") ? "\n" : "");
+  if (out !== t) { $("cfgText").value = out; cfgTextChanged(true); }
+}
+
+function countChanges(a, b) {
+  if (a && b && typeof a === "object" && typeof b === "object" && !isPrimArr(a)) {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    let n = 0;
+    keys.forEach((k) => (n += countChanges(a[k], b[k])));
+    return n;
+  }
+  return same(a, b) ? 0 : 1;
+}
+function paintChanges() {
+  if (!state.cfg.model || !state.cfg.base) { $("cfgChanges").textContent = ""; return; }
+  const n = countChanges(state.cfg.base, state.cfg.model);
+  $("cfgChanges").textContent = n ? plural(n, "change") + " not saved" : "";
+}
+
+function renderForm() {
+  const box = $("cfgForm");
+  if (!state.cfg.open) { box.innerHTML = `<div class="empty">Pick a config on the left.</div>`; return; }
+  const text = $("cfgText").value;
+  const parsed = state.cfg.readOnly ? null : plainJson(text);
+  const lossy = parsed && !roundTrips(text, parsed);
+  const model = lossy ? null : parsed;
+  state.cfg.model = model;
+  $("cfgKeySearch").disabled = !model;
+  if (!model) {
+    const why = state.cfg.readOnly ? ["This file is read-only here.", state.cfg.readOnly]
+      : lossy ? ["This file has to stay as written.", "It has number keys, repeated keys or very large numbers that the form would reorder or round, so it's edited as text."]
+      : !isJsonFile() ? ["Form view is for JSON files.", "This one is edited as text."]
+      : state.cfg.errLine ? [`The JSON has an error on line ${state.cfg.errLine}.`, "Fix it in Raw, then come back."]
+      : ["This file has comments.", "The form would strip them on save, so it's edited as text."];
+    box.innerHTML = `<div class="f-msg"><b>${esc(why[0])}</b><span>${esc(why[1])}</span><button class="ghost sm" id="fToRaw">Open in Raw</button></div>`;
+    $("fToRaw").onclick = () => setCfgView("raw");
+    paintChanges();
+    return;
+  }
+  const q = $("cfgKeySearch").value.trim().toLowerCase();
+  box.innerHTML = "";
+  if (q) {
+    const hits = [];
+    walkLeaves(model, [], (path) => { if (path.join(".").toLowerCase().includes(q)) hits.push(path); });
+    hits.slice(0, 300).forEach((p) => box.append(fRow(p, p.join(" › "), 0)));
+    if (!hits.length) box.innerHTML = `<div class="empty">No keys match.</div>`;
+    else if (hits.length > 300) box.insertAdjacentHTML("beforeend", `<div class="f-hint">Showing 300 of ${hits.length}. Narrow the search.</div>`);
+  } else {
+    box.append(fChildren([], 0));
+  }
+  paintChanges();
+}
+function walkLeaves(v, path, fn) {
+  if (v && typeof v === "object" && !isPrimArr(v)) for (const k of Object.keys(v)) walkLeaves(v[k], [...path, Array.isArray(v) ? +k : k], fn);
+  else if (path.length) fn(path);
+}
+
+function fChildren(path, depth) {
+  const v = path.length ? getAt(state.cfg.model, path) : state.cfg.model;
+  const frag = document.createDocumentFragment();
+  const keys = Object.keys(v);
+  // big configs open collapsed so the page stays quick
+  const openByDefault = keys.length <= 40 && depth < 2;
+  for (const k of keys) {
+    const p = [...path, Array.isArray(v) ? +k : k];
+    const child = v[k];
+    const label = Array.isArray(v) ? `#${+k + 1}` : k;
+    if (child && typeof child === "object" && !isPrimArr(child)) frag.append(fSection(p, label, depth, openByDefault));
+    else frag.append(fRow(p, label, depth));
+  }
+  if (!keys.length) frag.append(Object.assign(document.createElement("div"), { className: "f-hint", textContent: "Empty" }));
+  return frag;
+}
+function fSection(path, label, depth, openByDefault) {
+  const key = JSON.stringify(path);
+  const v = getAt(state.cfg.model, path);
+  const sec = document.createElement("div");
+  sec.className = "f-sec";
+  const n = Object.keys(v).length;
+  sec.innerHTML = `<button style="padding-left:${18 + depth * 18}px"><i>›</i><span></span><small>${Array.isArray(v) ? plural(n, "item") : plural(n, "key")}</small></button>`;
+  sec.querySelector("span").textContent = label;
+  const isOpen = () => (openByDefault ? !state.cfg.collapsed.has(key) : state.cfg.collapsed.has("+" + key));
+  const paint = () => {
+    sec.classList.toggle("open", isOpen());
+    sec.querySelector("div")?.remove();
+    if (isOpen()) { const body = document.createElement("div"); body.append(fChildren(path, depth + 1)); sec.append(body); }
+  };
+  sec.firstChild.onclick = () => {
+    const k = openByDefault ? key : "+" + key;
+    state.cfg.collapsed.has(k) ? state.cfg.collapsed.delete(k) : state.cfg.collapsed.add(k);
+    paint();
+  };
+  paint();
+  return sec;
+}
+
+function fRow(path, label, depth) {
+  const row = document.createElement("div");
+  row.className = "f-row";
+  row.style.paddingLeft = 18 + depth * 18 + "px";
+  const lab = document.createElement("label");
+  lab.innerHTML = `<span></span><i class="f-chg" hidden>changed</i>`;
+  lab.firstChild.textContent = label;
+  lab.title = path.join(" › ");
+  row.append(lab);
+  const v = getAt(state.cfg.model, path);
+  const markChg = () => (lab.querySelector(".f-chg").hidden = !state.cfg.base || same(getAt(state.cfg.base, path), getAt(state.cfg.model, path)));
+  const set = (val) => { setAt(state.cfg.model, path, val); markChg(); formCommit(); };
+
+  if (typeof v === "boolean") {
+    row.insertAdjacentHTML("beforeend", `<label class="toggle"><input type="checkbox" ${v ? "checked" : ""}><span></span></label>`);
+    row.querySelector("input").onchange = (e) => set(e.target.checked);
+  } else if (typeof v === "number") {
+    const inp = Object.assign(document.createElement("input"), { className: "f-in num", value: String(v), spellcheck: false });
+    inp.oninput = () => {
+      const n = inp.value.trim() === "" ? NaN : Number(inp.value);
+      inp.classList.toggle("bad", !Number.isFinite(n));
+      if (Number.isFinite(n)) set(n);
+    };
+    inp.onblur = () => { inp.value = String(getAt(state.cfg.model, path)); inp.classList.remove("bad"); };
+    row.append(inp);
+  } else if (typeof v === "string") {
+    const inp = Object.assign(document.createElement("input"), { className: "f-in", value: v, spellcheck: false });
+    inp.oninput = () => set(inp.value);
+    row.append(inp);
+  } else if (v === null) {
+    row.insertAdjacentHTML("beforeend", `<span class="f-null">null</span>`);
+  } else if (Array.isArray(v)) {
+    row.append(fChips(path, set));
+  }
+  markChg();
+  return row;
+}
+function fChips(path, set) {
+  const box = document.createElement("div");
+  box.className = "f-chips";
+  const paint = () => {
+    const arr = getAt(state.cfg.model, path);
+    box.innerHTML = arr.map((x, i) => `<span class="f-chip"><span></span><button data-i="${i}" title="Remove">×</button></span>`).join("")
+      + `<input class="f-add" placeholder="+ add" spellcheck="false">`;
+    box.querySelectorAll(".f-chip > span").forEach((el, i) => (el.textContent = JSON.stringify(arr[i]).replace(/^"|"$/g, "")));
+    box.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => { set(arr.filter((_, i) => i !== +b.dataset.i)); paint(); }));
+    const add = box.querySelector(".f-add");
+    add.onkeydown = (e) => {
+      if (e.key !== "Enter" || !add.value.trim()) return;
+      const raw = add.value.trim();
+      // keep the list's type: numbers stay numbers, true/false stay booleans
+      const first = arr.find((x) => x !== null);
+      const kind = first === undefined ? null : typeof first;
+      let val;
+      if (kind === "number") val = Number.isFinite(Number(raw)) ? Number(raw) : undefined;
+      else if (kind === "boolean") val = /^(true|false)$/i.test(raw) ? raw.toLowerCase() === "true" : undefined;
+      else if (kind === "string") val = raw;
+      else { try { val = JSON.parse(raw); if (val !== null && typeof val === "object") val = raw; } catch { val = raw; } }
+      if (val === undefined) { add.classList.add("bad"); return; }
+      set([...arr, val]);
+      paint();
+      box.querySelector(".f-add").focus();
+    };
+  };
+  paint();
+  return box;
+}
+let keyT;
+$("cfgKeySearch").oninput = () => { clearTimeout(keyT); keyT = setTimeout(renderForm, 150); };
+
+// ---- view switch ----
+state.cfgView = "form";
+function setCfgView(v) {
+  state.cfgView = v;
+  $$("#cfgView button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
+  $("cfgRaw").hidden = v !== "raw";
+  $("cfgRawBar").hidden = v !== "raw";
+  $("cfgForm").hidden = v !== "form";
+  $("cfgFormBar").hidden = v !== "form";
+  cfgRefresh();
+  saveUi();
+}
+function cfgRefresh() {
+  if (state.cfgView === "form") renderForm();
+  else { paintHl(); updatePos(); }
+  updatePos();
+}
+$$("#cfgView button").forEach((b) => (b.onclick = () => setCfgView(b.dataset.view)));
 
 // ============================ setup check ============================
 
@@ -1169,6 +1636,7 @@ function paintBkBar() {
 
 $$("#bkFilter button").forEach((btn) => (btn.onclick = () => {
   state.bk.src = btn.dataset.src;
+  saveUi();
   $$("#bkFilter button").forEach((x) => x.classList.toggle("on", x === btn));
   renderBackups();
 }));
@@ -1327,7 +1795,7 @@ async function showSnapshot(root, snap) {
 }
 
 async function restoreSnap(root, snap, only) {
-  if (isDirty() && only?.includes(state.cfg.open) && !(await leaveDirty())) return;
+  if (isDirty() && state.cfg.openRoot === root && (!only || only.includes(state.cfg.open)) && !(await leaveDirty())) return;
   try {
     const n = await invoke("snapshot_restore", { root, id: snap.id, only });
     toast(n ? `Restored ${plural(n, "file")}` : "Already matched");
@@ -1362,6 +1830,7 @@ async function openFileHistory() {
     $("histMain").innerHTML = `<div class="drawer-bar"><b>${esc(it.title)}</b><span class="muted small">red is this version, green is the editor</span><div class="spacer"></div>
         <button class="primary sm" id="histLoad">Load into editor</button></div>${diffHtml(text, $("cfgText").value)}`;
     $("histLoad").onclick = () => {
+      if (state.cfg.readOnly) return toast("This file is read-only here", true);
       // lands as an unsaved edit, so nothing changes on disk until Save
       $("cfgText").value = text;
       $("cfgText").oninput();

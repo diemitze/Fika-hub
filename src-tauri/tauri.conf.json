@@ -19,6 +19,7 @@
         "decorations": false,
         "transparent": false,
         "center": true,
+        "visible": false,
         "backgroundColor": "#0b0d10"
       }
     ],

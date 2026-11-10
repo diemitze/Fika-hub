@@ -192,6 +192,10 @@ pub fn save(path: &Path, text: &str, expected: &str) -> Result<String, String> {
     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
     validate(&name, text)?;
     let current = std::fs::read(path).map_err(|e| e.to_string())?;
+    let body = current.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&current);
+    if current.starts_with(&[0xFF, 0xFE]) || current.starts_with(&[0xFE, 0xFF]) || std::str::from_utf8(body).is_err() {
+        return Err("This file isn't plain UTF-8, so it can't be saved from here.".into());
+    }
     if stamp(&current) != expected {
         return Err("The file changed on disk since you opened it. Reload first.".into());
     }

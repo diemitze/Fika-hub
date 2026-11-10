@@ -30,6 +30,8 @@ pub struct Stack {
     pub restarting: AtomicBool,
     pub headless_plan: Mutex<Option<(PathBuf, String, u16)>>,
     pub stage: Mutex<(String, u8)>,
+    /// when the current server boot began, for the ETA
+    pub boot_start: Mutex<Option<Instant>>,
     pub mode: Mutex<String>,
     pub sys: Mutex<Option<System>>,
 }
@@ -60,6 +62,9 @@ pub struct Status {
     pub restarts: u32,
     pub headless_held: bool,
     pub can_start_headless: bool,
+    /// seconds into the current server boot, and how long the last few took
+    pub boot_elapsed: Option<u64>,
+    pub boot_expect: Option<u64>,
 }
 
 fn alive(core: &Core, my: u64) -> bool {
@@ -125,7 +130,34 @@ pub fn stop_all(core: &Core, why: &str) {
     close_game(&core.stack.game);
     kill_slot(&core.stack.headless);
     kill_slot(&core.stack.server);
+    core.stack.boot_start.lock().unwrap().take();
     set_stage(core, "", 0);
+}
+
+fn boot_file() -> PathBuf {
+    crate::settings::data_dir().join("boot_times.json")
+}
+
+fn boot_times() -> Vec<u64> {
+    std::fs::read_to_string(boot_file()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn record_boot(secs: u64) {
+    if secs < 3 {
+        return;
+    }
+    let mut v = boot_times();
+    v.push(secs);
+    let skip = v.len().saturating_sub(5);
+    let v: Vec<u64> = v.into_iter().skip(skip).collect();
+    let _ = std::fs::write(boot_file(), serde_json::to_string(&v).unwrap_or_default());
+}
+
+/// Median of the last boots, so one slow first-start-after-update doesn't skew it.
+fn boot_expect() -> Option<u64> {
+    let mut v = boot_times();
+    v.sort_unstable();
+    v.get(v.len() / 2).copied()
 }
 
 fn wait_port(core: &Core, my: u64, port: u16, watch_server: bool) -> bool {
@@ -135,14 +167,19 @@ fn wait_port(core: &Core, my: u64, port: u16, watch_server: bool) -> bool {
             return false;
         }
         if install::port_listening(port) {
+            if let Some(t) = core.stack.boot_start.lock().unwrap().take().filter(|_| watch_server) {
+                record_boot(t.elapsed().as_secs());
+            }
             return true;
         }
         if watch_server && !child_alive(&core.stack.server) {
+            core.stack.boot_start.lock().unwrap().take();
             note(core, SERVER, "SPT server exited before it was ready. Check the output above.");
             return false;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
+    core.stack.boot_start.lock().unwrap().take();
     note(core, SERVER, "Server didn't open its port within 10 minutes.");
     false
 }
@@ -177,6 +214,7 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         return Err("Stopped while the server was starting.".into());
     }
     core.logs.mark_run(SERVER, "server started");
+    *core.stack.boot_start.lock().unwrap() = Some(Instant::now());
 
     // A restart or stop takes the child out of the slot first, so only an exit
     // that leaves this exact child behind is a crash.
@@ -579,7 +617,10 @@ pub fn status(core: &Core) -> Status {
     };
 
     let (stage, progress) = core.stack.stage.lock().unwrap().clone();
+    let boot_elapsed = core.stack.boot_start.lock().unwrap().map(|t| t.elapsed().as_secs());
     Status {
+        boot_expect: boot_elapsed.and_then(|_| boot_expect()),
+        boot_elapsed,
         active: core.stack.active.load(SeqCst),
         mode: core.stack.mode.lock().unwrap().clone(),
         stage,

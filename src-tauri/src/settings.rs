@@ -83,11 +83,14 @@ fn merge_into(old: &std::path::Path, new: &std::path::Path) {
         if from.is_dir() && to.is_dir() {
             merge_into(&from, &to);
         } else if !to.exists() || (from.is_file() && to.is_file() && mtime(&from) > mtime(&to)) {
-            let _ = std::fs::remove_file(&to);
+            // rename replaces the file in one step on Windows, so a failure leaves both copies
             let _ = std::fs::rename(&from, &to);
+        } else if from.is_file() && to.is_file() {
+            let _ = std::fs::remove_file(&from);
         }
     }
-    let _ = std::fs::remove_dir_all(old);
+    // only goes once everything above actually moved out
+    let _ = std::fs::remove_dir(old);
 }
 
 fn path() -> PathBuf {
