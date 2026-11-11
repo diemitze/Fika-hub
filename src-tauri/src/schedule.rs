@@ -382,7 +382,7 @@ fn quip(title: &str) -> Option<&'static str> {
     let lines: &[&str] = match title {
         "Server crashed" => &[
             "Someone tell Nikita.",
-            "Rest in pieces.",
+            "Killed in action. Insurance claim filed.",
             "Killed by: Unknown. Classic.",
             "The server walked into a claymore.",
             "Desync claims another victim.",
@@ -390,25 +390,25 @@ fn quip(title: &str) -> Option<&'static str> {
         "Server keeps crashing" => &[
             "At this point it's a lifestyle.",
             "Three strikes, the server is benched.",
-            "Someone please read the logs before trying again.",
+            "Tagilla hits less often than this.",
         ],
         "Server is back up" => &[
-            "Like nothing ever happened.",
+            "Survived. Extracted. Somehow.",
             "Insurance came through.",
-            "Back from the dead, gear and all.",
+            "Shook it off like a painkiller.",
             "Respawned with full health.",
         ],
         "Server failed to start" => &[
-            "It didn't even make it out of the hideout.",
+            "Died in the hideout. Impressive.",
             "Stuck on the loading screen, as tradition demands.",
             "Somebody's mod had other plans.",
         ],
         "Headless crashed" => &[
             "The headless lost its head. Again.",
-            "Even the headless needs a break.",
+            "The headless got headshot. Ironic.",
             "Headless? More like helpless.",
         ],
-        "Headless keeps crashing" => &["The headless has given up on life.", "Five tries. It's not coming back on its own."],
+        "Headless keeps crashing" => &["The headless has filed for retirement.", "The headless has left the chat."],
         "Restart in 5 minutes" => &[
             "Find an extract, you have 5 minutes.",
             "Finish your raid or forever hold your loot.",
@@ -416,15 +416,19 @@ fn quip(title: &str) -> Option<&'static str> {
         ],
         "Restart is waiting" => &[
             "Someone is still looting Labs.",
-            "The server waits for no one. Except you, apparently.",
-            "Take your time. No really, 30 minutes at most.",
+            "Waiting on the guy checking every jacket.",
+            "The server is camping the extract for you.",
         ],
         "Restarting now" => &[
             "Turning it off and on again. Works every time.",
             "Brb, server is getting a coffee.",
-            "Don't panic, this one is on purpose.",
+            "Quick trip to the hideout for a craft.",
         ],
-        "Offline" => &["Shhh, the server is sleeping.", "Gone fishing.", "Touching grass, back later."],
+        "Offline" => &[
+            "Shhh, the server is sleeping.",
+            "Out of raid, out of mind.",
+            "Touching grass, back later.",
+        ],
         "Empty" => &[
             "Quiet out there. Too quiet.",
             "Plenty of loot, nobody to take it.",
