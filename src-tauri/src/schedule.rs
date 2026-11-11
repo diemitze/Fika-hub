@@ -154,7 +154,7 @@ fn tick_restart(core: &Arc<Core>) {
 }
 
 // ---------------- Discord ----------------
-
+// fuck BSG and there map names
 fn map_name(id: &str) -> String {
     match id.to_lowercase().as_str() {
         "bigmap" => "Customs",
@@ -378,16 +378,25 @@ fn pick(lines: &[&'static str]) -> &'static str {
 }
 
 /// The little joke under each alert, picked by the alert's title.
+// one line per joke, so rustfmt mustn't fold the short lists back up
+#[rustfmt::skip]
 fn quip(title: &str) -> Option<&'static str> {
     let lines: &[&str] = match title {
         "Server crashed" => &[
-            "Someone tell Nikita.",
-            "Killed by: Unknown. Classic.",
-            "The server walked into a claymore.",
-            "Desync claims another victim.",
+            "why did waypoints do this?",
+            "uh something killed the server",
+            "The server is down.",
+            "hey who turned off the lights?.",
+            "that wasnt supposed to happen.",
         ],
-        "Server keeps crashing" => &["At this point it's a lifestyle.", "Three strikes, the server is benched."],
-        "Server is back up" => &["Insurance came through.", "Respawned with full health."],
+        "Server keeps crashing" => &[
+            "At this point it's a lifestyle.",
+            "Three strikes, the server is benched.",
+        ],
+        "Server is back up" => &[
+            "Insurance came through.",
+            "Respawned with full health.",
+        ],
         "Server failed to start" => &[
             "Stuck on the loading screen, as tradition demands.",
             "Somebody's mod had other plans.",
@@ -397,13 +406,19 @@ fn quip(title: &str) -> Option<&'static str> {
             "The headless got headshot. Ironic.",
             "Headless? More like helpless.",
         ],
-        "Headless keeps crashing" => &["The headless has given up.", "The headless has left the chat."],
+        "Headless keeps crashing" => &[
+            "The headless has given up.",
+            "The headless has left the chat.",
+        ],
         "Restart in 5 minutes" => &[
             "Find an extract, you have 5 minutes.",
             "Finish your raid or forever hold your loot.",
             "Good time to sell that junk on the flea.",
         ],
-        "Restart is waiting" => &["Someone is still looting Labs.", "Waiting on the guy checking every jacket."],
+        "Restart is waiting" => &[
+            "Someone is still looting Labs.",
+            "Waiting on the guy checking every jacket.",
+        ],
         "Restarting now" => &[
             "Turning it off and on again. Works every time.",
             "Brb, server is getting a coffee.",
