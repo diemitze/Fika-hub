@@ -154,7 +154,8 @@ function goto(page) {
     renderLog(true);
     updateBadges();
   }
-  if (page === "configs" && !state.cfg.root) loadConfigRoots();
+  // cfg.root comes back from the saved UI state, so it can't tell whether the list was scanned yet
+  if (page === "configs" && !state.cfg.scanned) loadConfigRoots();
   if (page === "settings") {
     loadConnection();
     loadNextRestart();
@@ -408,7 +409,7 @@ async function loadConnection() {
   if (!c) return;
   state.conn = c;
   const lan = c.lanIp ? `${c.lanIp}:${c.port}` : null;
-  $("connLan").textContent = lan || "No network found";
+  renderLan();
   $("connCopy").disabled = !lan;
   $("srvPort").title = lan ? `Click to copy ${lan} for friends` : "";
   $("serverAddr").placeholder = `127.0.0.1:${c.port}`;
@@ -418,6 +419,20 @@ async function loadConnection() {
     ? `Game only and Headless only connect to ${c.gameAddr}.`
     : "Game only and Headless only connect to this PC.";
 }
+
+// hidden until asked for, so opening Settings on stream doesn't flash the IP
+let lanShown = false;
+function renderLan() {
+  const c = state.conn;
+  const lan = c?.lanIp ? `${c.lanIp}:${c.port}` : null;
+  $("connLan").textContent = !lan ? "No network found" : lanShown ? lan : "•••.•••.•.••:" + c.port;
+  $("connShow").textContent = lanShown ? "Hide" : "Show";
+  $("connShow").disabled = !lan;
+}
+$("connShow").onclick = () => {
+  lanShown = !lanShown;
+  renderLan();
+};
 
 async function copyLan() {
   const c = state.conn;
@@ -465,8 +480,8 @@ $("connCheck").onclick = async () => {
     $("connCheck").disabled = false;
     rows.push(
       ok
-        ? checkRow("ok", `Port ${c.port} answers on ${c.lanIp}. Windows Firewall can still block other PCs, this test runs from here.`)
-        : checkRow("bad", `Port ${c.port} doesn't answer on ${c.lanIp}. Check the ip above, then restart the server.`),
+        ? checkRow("ok", `Port ${c.port} answers on ${c.lanIp}. Windows Firewall can still block other PCs. This test runs from here.`)
+        : checkRow("bad", `Port ${c.port} doesn't answer on ${c.lanIp}. Check the IP above, then restart the server.`),
     );
   }
   $("connChecks").innerHTML = rows.join("");
@@ -1183,6 +1198,7 @@ $("logOpen").onclick = () => call("open_folder", { which: ["host", "headless-log
 
 async function loadConfigRoots() {
   const roots = await invoke("config_roots");
+  state.cfg.scanned = true;
   $("cfgRoots").innerHTML = roots
     .map((r) => `<button data-root="${r.key}" ${r.exists ? "" : "disabled"} title="${esc(r.path)}">${esc(r.label)}</button>`)
     .join("");
@@ -1550,7 +1566,7 @@ $("cfgFormat").onclick = () => {
   try {
     v = JSON.parse(t);
   } catch {
-    return toast(state.cfg.errLine ? `Fix line ${state.cfg.errLine} first` : "This file has comments, Format would remove them", true);
+    return toast(state.cfg.errLine ? `Fix line ${state.cfg.errLine} first` : "This file has comments, so Format would remove them", true);
   }
   if (!roundTrips(t, v)) return toast("Format would reorder keys or rewrite numbers in this file, so it's off here", true);
   const out = JSON.stringify(v, null, indentOf(t)) + (t.endsWith("\n") ? "\n" : "");
@@ -1928,7 +1944,7 @@ $("btnHlPower").onclick = async () => {
     )
       return;
     await call("stop_headless").catch(() => {});
-    toast("Headless stopped, it stays down until you start it");
+    toast("Headless stopped. It stays down until you start it");
   } else {
     await call("start_headless").catch(() => {});
     toast("Starting headless");
@@ -2317,7 +2333,7 @@ async function showSnapshot(root, snap) {
     if (
       !(await confirmBox(
         "Restore snapshot?",
-        `${plural(restorable.length, "file")} go back to how they were in "${snap.name}". Each current file is backed up first. Files added since stay as they are.`,
+        `${plural(restorable.length, "file")} ${restorable.length === 1 ? "goes" : "go"} back to how they were in "${snap.name}". Each current file is backed up first. Files added since stay as they are.`,
         "Restore",
       ))
     )
