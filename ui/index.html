@@ -466,10 +466,26 @@
               <h3>Connection</h3>
               <div class="set-row">
                 <div class="set-label"><b>Your LAN address</b><small>Friends on your network connect here.</small></div>
-                <div class="path-box"><code id="connLan">-</code></div>
+                <div class="path-box secret-box">
+                  <code id="connLan">-</code
+                  ><button class="eye" id="connShow" title="Show address">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="15"
+                      height="15"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                </div>
                 <div class="row-btns">
-                  <button class="ghost sm" id="connShow">Show</button><button class="ghost sm" id="connCopy">Copy</button
-                  ><button class="ghost sm" id="connCheck">Check</button>
+                  <button class="ghost sm" id="connCopy">Copy</button><button class="ghost sm" id="connCheck">Check</button>
                 </div>
               </div>
               <div class="checks" id="connChecks"></div>

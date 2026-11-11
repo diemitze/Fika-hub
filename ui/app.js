@@ -425,8 +425,9 @@ let lanShown = false;
 function renderLan() {
   const c = state.conn;
   const lan = c?.lanIp ? `${c.lanIp}:${c.port}` : null;
-  $("connLan").textContent = !lan ? "No network found" : lanShown ? lan : "•••.•••.•.••:" + c.port;
-  $("connShow").textContent = lanShown ? "Hide" : "Show";
+  $("connLan").textContent = !lan ? "No network found" : lanShown ? lan : "••••••••";
+  $("connShow").classList.toggle("on", lanShown);
+  $("connShow").title = lanShown ? "Hide address" : "Show address";
   $("connShow").disabled = !lan;
 }
 $("connShow").onclick = () => {
