@@ -154,7 +154,7 @@ fn tick_restart(core: &Arc<Core>) {
 }
 
 // ---------------- Discord ----------------
-// fuck BSG and there map names
+// gotta love BSG and there map names
 fn map_name(id: &str) -> String {
     match id.to_lowercase().as_str() {
         "bigmap" => "Customs",
@@ -390,16 +390,16 @@ fn quip(title: &str) -> Option<&'static str> {
             "that wasnt supposed to happen.",
         ],
         "Server keeps crashing" => &[
-            "At this point it's a lifestyle.",
-            "Three strikes, the server is benched.",
+            "Even Therapist can't fix this shit.",
+            "Someone PLEASE check the fucking logs.",
         ],
         "Server is back up" => &[
-            "Insurance came through.",
-            "Respawned with full health.",
+            "It's alive. Please don't install another mod.",
+            "Against all odds, the server actually works.",
         ],
         "Server failed to start" => &[
-            "Stuck on the loading screen, as tradition demands.",
-            "Somebody's mod had other plans.",
+            "Congratulations, you've somehow broken the startup process.",
+            "The server took one look at your mod list and quit. cant blame it.",
         ],
         "Headless crashed" => &[
             "The headless lost its head. Again.",
@@ -407,39 +407,49 @@ fn quip(title: &str) -> Option<&'static str> {
             "Headless? More like helpless.",
         ],
         "Headless keeps crashing" => &[
-            "The headless has given up.",
+            "you probably got a mod installed that doesn't like the headless or belong on the headless part.",
             "The headless has left the chat.",
+            "STOP FUCKING DYING.",
+            "The headless has died. Again.",
+            "somone call fika support we just nuked the headless.",
         ],
         "Restart in 5 minutes" => &[
             "Find an extract, you have 5 minutes.",
-            "Finish your raid or forever hold your loot.",
+            "The server is going on a mandatory smoke break in 5 minutes.",
             "Good time to sell that junk on the flea.",
+            "5 minutes until we perform the ancient ritual of Ctrl+C",
         ],
         "Restart is waiting" => &[
             "Someone is still looting Labs.",
             "Waiting on the guy checking every jacket.",
+            "The restart has been delayed by someone searching through Drawers.",
         ],
         "Restarting now" => &[
             "Turning it off and on again. Works every time.",
             "Brb, server is getting a coffee.",
             "Quick trip to the hideout for a craft.",
+            "Restarting now. If it doesn't come back, blame waypoints.",
         ],
         "Offline" => &[
             "Shhh, the server is sleeping.",
             "Out of raid, out of mind.",
             "Touching grass, back later.",
+            "The server is taking a break from your shenanigans.",
+            "The server is offline.",
         ],
         "Empty" => &[
             "Quiet out there. Too quiet.",
             "Plenty of loot, nobody to take it.",
-            "The Scavs are getting bored.",
+            "The Scavs are waiting.",
+            "hello?...",
+            "The server is emptier than your stash.",
+            "No players detected.",
         ],
         _ => return None,
     };
     Some(pick(lines))
 }
 
-/// Puts the joke on its own italic line under the real text.
 fn with_quip(title: &str, text: &str) -> String {
     match quip(title) {
         Some(q) if text.is_empty() => format!("*{q}*"),
