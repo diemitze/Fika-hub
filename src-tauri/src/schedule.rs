@@ -232,7 +232,7 @@ fn status_payload(core: &Core, online: bool, last_online: Option<u64>) -> serde_
         let desc = last_online.map(|t| format!("Last online <t:{t}:R>")).unwrap_or_default();
         return json!({
             "username": "Fika Hub",
-            "embeds": [{ "title": "○ Offline", "color": GREY, "description": desc }]
+            "embeds": [{ "title": "○ Offline", "color": GREY, "description": with_quip("Offline", &desc) }]
         });
     }
 
@@ -300,7 +300,7 @@ fn status_payload(core: &Core, online: bool, last_online: Option<u64>) -> serde_
         "embeds": [{
             "title": title,
             "color": GREEN,
-            "description": sub.join(" · "),
+            "description": if l.players.is_empty() { with_quip("Empty", &sub.join(" · ")) } else { sub.join(" · ") },
             "fields": fields,
             "footer": { "text": "Fika Hub · Last updated" },
             "timestamp": iso_utc(now),
@@ -368,6 +368,82 @@ pub fn post_status(core: &Core) -> Result<(), String> {
     Ok(())
 }
 
+/// A random line from the list, good enough without pulling in a rand crate.
+fn pick(lines: &[&'static str]) -> &'static str {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0);
+    lines[n % lines.len()]
+}
+
+/// The little joke under each alert, picked by the alert's title.
+fn quip(title: &str) -> Option<&'static str> {
+    let lines: &[&str] = match title {
+        "Server crashed" => &[
+            "Someone tell Nikita.",
+            "Rest in pieces.",
+            "Killed by: Unknown. Classic.",
+            "The server walked into a claymore.",
+            "Desync claims another victim.",
+        ],
+        "Server keeps crashing" => &[
+            "At this point it's a lifestyle.",
+            "Three strikes, the server is benched.",
+            "Someone please read the logs before trying again.",
+        ],
+        "Server is back up" => &[
+            "Like nothing ever happened.",
+            "Insurance came through.",
+            "Back from the dead, gear and all.",
+            "Respawned with full health.",
+        ],
+        "Server failed to start" => &[
+            "It didn't even make it out of the hideout.",
+            "Stuck on the loading screen, as tradition demands.",
+            "Somebody's mod had other plans.",
+        ],
+        "Headless crashed" => &[
+            "The headless lost its head. Again.",
+            "Even the headless needs a break.",
+            "Headless? More like helpless.",
+        ],
+        "Headless keeps crashing" => &["The headless has given up on life.", "Five tries. It's not coming back on its own."],
+        "Restart in 5 minutes" => &[
+            "Find an extract, you have 5 minutes.",
+            "Finish your raid or forever hold your loot.",
+            "Good time to sell that junk on the flea.",
+        ],
+        "Restart is waiting" => &[
+            "Someone is still looting Labs.",
+            "The server waits for no one. Except you, apparently.",
+            "Take your time. No really, 30 minutes at most.",
+        ],
+        "Restarting now" => &[
+            "Turning it off and on again. Works every time.",
+            "Brb, server is getting a coffee.",
+            "Don't panic, this one is on purpose.",
+        ],
+        "Offline" => &["Shhh, the server is sleeping.", "Gone fishing.", "Touching grass, back later."],
+        "Empty" => &[
+            "Quiet out there. Too quiet.",
+            "Plenty of loot, nobody to take it.",
+            "The Scavs are getting bored.",
+        ],
+        _ => return None,
+    };
+    Some(pick(lines))
+}
+
+/// Puts the joke on its own italic line under the real text.
+fn with_quip(title: &str, text: &str) -> String {
+    match quip(title) {
+        Some(q) if text.is_empty() => format!("*{q}*"),
+        Some(q) => format!("{text}\n*{q}*"),
+        None => text.to_string(),
+    }
+}
+
 pub fn discord_event(core: &Core, title: &str, text: &str, color: u32) {
     let s = core.settings.lock().unwrap().clone();
     if !s.discord_enabled || !s.discord_events || !valid_hook(s.discord_webhook.trim()) {
@@ -375,7 +451,7 @@ pub fn discord_event(core: &Core, title: &str, text: &str, color: u32) {
     }
     let body = json!({
         "username": "Fika Hub",
-        "embeds": [{ "title": title, "description": text, "color": color }]
+        "embeds": [{ "title": title, "description": with_quip(title, text), "color": color }]
     });
     let _ = tauri::async_runtime::block_on(send(&core.web, s.discord_webhook.trim(), &body, None));
 }
@@ -391,7 +467,7 @@ pub fn discord_alert(core: &Core, title: &str, text: &str, color: u32) {
     }
     let body = json!({
         "username": "Fika Hub",
-        "embeds": [{ "title": title, "description": text, "color": color, "timestamp": iso_utc(crate::history::now()) }]
+        "embeds": [{ "title": title, "description": with_quip(title, text), "color": color, "timestamp": iso_utc(crate::history::now()) }]
     });
     let http = core.web.clone();
     std::thread::spawn(move || {
