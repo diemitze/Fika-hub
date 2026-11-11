@@ -48,8 +48,8 @@ pub fn run(core: &Core, mode: &str, profile: Option<&str>) -> Vec<Check> {
     let host = crate::host_dir(&s);
     let player = s.player_dir.as_ref().map(PathBuf::from);
     let headless = crate::headless_dir(&s);
-    let wants_host = mode != "join";
-    let wants_game = mode != "host";
+    let wants_host = mode == "full" || mode == "host";
+    let wants_game = mode == "full" || mode == "join";
     let mut out = vec![];
 
     match (&host, &s.host_dir) {
@@ -75,6 +75,33 @@ pub fn run(core: &Core, mode: &str, profile: Option<&str>) -> Vec<Check> {
                 "If the headless lives in its own folder, set it under Settings > Installs, or the headless is skipped.",
                 Some("settings"),
             )),
+        }
+    }
+    if mode == "headless" {
+        match (&headless, &s.headless_dir) {
+            (Some(h), _) => out.push(ok(format!("Headless install found at {}", h.display()))),
+            (None, d) => out.push(bad(
+                d.as_deref()
+                    .and_then(|d| install::headless_problem(Path::new(d)))
+                    .unwrap_or_else(|| "No Fika headless install set.".into()),
+                "Pick the folder with EscapeFromTarkov.exe and Fika.Headless.dll in Settings.",
+                Some("settings"),
+            )),
+        }
+        match crate::headless_id(&s) {
+            Some(id) => out.push(ok(format!("Headless profile {id}"))),
+            None => out.push(bad(
+                "No headless profile ID.",
+                "Copy the headless profile file name (without .json) from the server's user\\profiles folder into Settings.",
+                Some("settings"),
+            )),
+        }
+        if s.server_address.trim().is_empty() {
+            out.push(warn(
+                "No server address set, the headless connects to this PC.",
+                "Enter the server's address under Settings > Connection if it runs elsewhere.",
+                Some("settings"),
+            ));
         }
     }
     if wants_game {
@@ -197,8 +224,8 @@ pub fn run(core: &Core, mode: &str, profile: Option<&str>) -> Vec<Check> {
         }
     }
 
-    if mode == "join" && !s.server_address.trim().is_empty() {
-        let addr = crate::game_addr(&s, "join");
+    if crate::remote_mode(mode) && !s.server_address.trim().is_empty() {
+        let addr = crate::game_addr(&s, mode);
         if install::reachable(&addr, std::time::Duration::from_secs(2)) {
             out.push(ok(format!("Server at {addr} answers")));
         } else {

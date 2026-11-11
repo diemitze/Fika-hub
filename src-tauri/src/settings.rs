@@ -16,8 +16,10 @@ pub struct Settings {
     pub stop_with_game: bool,
     pub last_profile: Option<String>,
     pub launch_mode: String,
-    /// host[:port] for game-only mode. Empty means this PC.
+    /// host[:port] for the game-only and headless-only modes. Empty means this PC.
     pub server_address: String,
+    /// headless profile ID for when the server (and its profiles) is on another machine
+    pub headless_profile: String,
     pub notify_crash: bool,
     pub notify_players: bool,
     /// "root|rel" keys of config files
@@ -50,6 +52,7 @@ impl Default for Settings {
             last_profile: None,
             launch_mode: "full".into(),
             server_address: String::new(),
+            headless_profile: String::new(),
             notify_crash: true,
             notify_players: false,
             pinned_configs: vec![],

@@ -28,7 +28,7 @@ pub struct Stack {
     pub headless_hold: AtomicBool,
     pub supervising: AtomicBool,
     pub restarting: AtomicBool,
-    pub headless_plan: Mutex<Option<(PathBuf, String, u16)>>,
+    pub headless_plan: Mutex<Option<(PathBuf, String, u16, String)>>,
     pub stage: Mutex<(String, u8)>,
     /// when the current server boot began, for the ETA
     pub boot_start: Mutex<Option<Instant>>,
@@ -274,32 +274,41 @@ fn spawn_eft(dir: &Path, args: &str, hidden: bool) -> Result<Child, String> {
     cmd.spawn().map_err(|e| format!("Couldn't start EscapeFromTarkov.exe: {e}"))
 }
 
-fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, port: u16) {
-    *core.stack.headless_plan.lock().unwrap() = Some((host.clone(), token.clone(), port));
+fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, port: u16, addr: String) {
+    *core.stack.headless_plan.lock().unwrap() = Some((host.clone(), token.clone(), port, addr.clone()));
     core.stack.headless_hold.store(false, SeqCst);
     core.stack.supervising.store(true, SeqCst);
     std::thread::spawn(move || {
-        supervise_loop(&core, my, &host, &token, port);
+        supervise_loop(&core, my, &host, &token, port, &addr);
         if core.stack.gen.load(SeqCst) == my {
             core.stack.supervising.store(false, SeqCst);
         }
     });
 }
 
-fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16) {
+/// The local TCP table only knows about this PC, a remote server needs a real connect.
+fn server_up(port: u16, addr: &str) -> bool {
+    if addr.starts_with("127.") || addr.starts_with("localhost:") {
+        install::port_listening(port)
+    } else {
+        install::reachable(addr, Duration::from_secs(2))
+    }
+}
+
+fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16, addr: &str) {
     let core = core.clone();
     loop {
         if !alive(&core, my) {
             return;
         }
         // after a server restart the headless would just fail to connect, so hold it until the port is back
-        while !install::port_listening(port) {
+        while !server_up(port, addr) {
             if !alive(&core, my) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        let args = format!("{} -nographics -batchmode", backend_args(token, &format!("127.0.0.1:{port}")));
+        let args = format!("{} -nographics -batchmode", backend_args(token, addr));
         match spawn_eft(host, &args, true) {
             Ok(c) => {
                 *core.stack.headless.lock().unwrap() = Some(c);
@@ -368,7 +377,7 @@ pub fn start_headless(core: &Arc<Core>) -> Result<(), String> {
     if core.stack.supervising.load(SeqCst) {
         return Err("The headless is already running.".into());
     }
-    let (host, token, port) = core
+    let (host, token, port, addr) = core
         .stack
         .headless_plan
         .lock()
@@ -376,7 +385,7 @@ pub fn start_headless(core: &Arc<Core>) -> Result<(), String> {
         .clone()
         .ok_or("No headless profile on the host.")?;
     note(core, HEADLESS, "Starting headless...");
-    supervise_headless(core.clone(), core.stack.gen.load(SeqCst), host, token, port);
+    supervise_headless(core.clone(), core.stack.gen.load(SeqCst), host, token, port, addr);
     Ok(())
 }
 
@@ -460,7 +469,7 @@ pub struct LaunchPlan {
     pub profile: Option<String>,
     pub headless_id: Option<String>,
     pub port: u16,
-    /// host:port the game connects to. Only differs from 127.0.0.1 in game-only mode.
+    /// host:port the game or headless connects to. Only differs from 127.0.0.1 in the remote modes.
     pub addr: String,
 }
 
@@ -479,8 +488,8 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
             note(&core, SERVER, msg);
             stop_all(&core, "launch failed");
         };
-        let wants_server = plan.mode != "join";
-        let wants_game = plan.mode != "host";
+        let wants_server = plan.mode == "full" || plan.mode == "host";
+        let wants_game = plan.mode == "full" || plan.mode == "join";
 
         if wants_server {
             let host = plan.host.clone().unwrap();
@@ -502,7 +511,9 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
             }
             set_stage(&core, "Starting headless", 65);
             match (plan.headless.clone(), plan.headless_id.clone()) {
-                (Some(dir), Some(id)) => supervise_headless(core.clone(), my, dir, id, plan.port),
+                (Some(dir), Some(id)) => {
+                    supervise_headless(core.clone(), my, dir, id, plan.port, format!("127.0.0.1:{}", plan.port))
+                }
                 (None, _) => note(
                     &core,
                     HEADLESS,
@@ -517,6 +528,13 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
                     stop_all(&core, "server unreachable");
                 }
                 return;
+            }
+            if plan.mode == "headless" {
+                set_stage(&core, "Starting headless", 65);
+                match (plan.headless.clone(), plan.headless_id.clone()) {
+                    (Some(dir), Some(id)) => supervise_headless(core.clone(), my, dir, id, plan.port, plan.addr.clone()),
+                    _ => return fail("Headless only mode needs a headless install and its profile ID."),
+                }
             }
         }
 
@@ -539,7 +557,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
     Ok(())
 }
 
-/// Game-only mode may point at another PC, where the local TCP table says nothing.
+/// The remote modes may point at another PC, where the local TCP table says nothing.
 fn wait_remote(core: &Core, my: u64, addr: &str) -> bool {
     let start = Instant::now();
     let mut said = false;

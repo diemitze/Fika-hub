@@ -22,7 +22,9 @@ const MAPS = {
   labyrinth: "Labyrinth",
 };
 const ACTIVITY = ["In menu", "In raid", "In stash", "In hideout", "On the flea"];
-const MODE_TEXT = { full: "Full stack", host: "Host only", join: "Game only" };
+const MODE_TEXT = { full: "Full stack", host: "Host only", join: "Game only", headless: "Headless only" };
+// modes that never start the player's game
+const noGame = (m) => m === "host" || m === "headless";
 const STREAM_NAMES = ["server", "headless", "game"];
 
 const state = {
@@ -405,9 +407,10 @@ async function loadConnection() {
   $("srvPort").title = lan ? `Click to copy ${lan} for friends` : "";
   $("serverAddr").placeholder = `127.0.0.1:${c.port}`;
   if (document.activeElement !== $("serverAddr")) $("serverAddr").value = state.settings.serverAddress || "";
+  if (document.activeElement !== $("headlessProfile")) $("headlessProfile").value = state.settings.headlessProfile || "";
   $("serverAddrNote").textContent = state.settings.serverAddress
-    ? `Game only mode connects to ${c.gameAddr}.`
-    : "Game only mode connects to this PC.";
+    ? `Game only and Headless only connect to ${c.gameAddr}.`
+    : "Game only and Headless only connect to this PC.";
 }
 
 async function copyLan() {
@@ -468,6 +471,10 @@ $("serverAddr").onchange = async () => {
   await saveSettings();
   loadConnection();
 };
+$("headlessProfile").onchange = async () => {
+  state.settings.headlessProfile = $("headlessProfile").value.trim();
+  await saveSettings();
+};
 $("serverAddrTest").onclick = async () => {
   await $("serverAddr").onchange();
   const addr = state.conn?.gameAddr;
@@ -483,7 +490,7 @@ $("serverAddrTest").onclick = async () => {
 function renderMode() {
   $$("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === state.mode));
   $("goSub").textContent = MODE_TEXT[state.mode];
-  document.querySelector(".cmd-who").style.opacity = state.mode === "host" ? ".45" : "";
+  document.querySelector(".cmd-who").style.opacity = noGame(state.mode) ? ".45" : "";
 }
 $$("#modeSeg button").forEach(
   (b) =>
@@ -580,10 +587,10 @@ $("goBtn").onclick = async () => {
     return;
   }
   const p = state.profiles.find((x) => x.id === state.profileId);
-  if (state.mode !== "host" && !p) return toast("Pick who you're playing as", true);
+  if (!noGame(state.mode) && !p) return toast("Pick who you're playing as", true);
   if (state.settings.checkBeforeLaunch) {
     if (!(await preflight())) return;
-  } else if (state.mode !== "host") {
+  } else if (!noGame(state.mode)) {
     if (
       !p.valid &&
       !(await confirmBox(
@@ -594,7 +601,7 @@ $("goBtn").onclick = async () => {
     )
       return;
   }
-  if (!state.settings.checkBeforeLaunch && state.mismatch?.length && state.settings.warnMismatch && state.mode !== "host") {
+  if (!state.settings.checkBeforeLaunch && state.mismatch?.length && state.settings.warnMismatch && !noGame(state.mode)) {
     if (
       !(await confirmBox(
         "Versions don't match",
@@ -604,7 +611,7 @@ $("goBtn").onclick = async () => {
     )
       return;
   }
-  await call("launch", { mode: state.mode, profile: state.mode === "host" ? null : state.profileId }).catch(() => {});
+  await call("launch", { mode: state.mode, profile: noGame(state.mode) ? null : state.profileId }).catch(() => {});
   pollStatus();
 };
 
@@ -736,9 +743,9 @@ function paintNode(el, p, key, s) {
     s.active &&
     !p.running &&
     s.progress < 100 &&
-    ((key === "server" && s.mode !== "join") ||
+    ((key === "server" && (s.mode === "full" || s.mode === "host")) ||
       (key === "headless" && s.mode !== "join" && s.progress >= 65) ||
-      (key === "game" && s.mode !== "host" && s.progress >= 85));
+      (key === "game" && !noGame(s.mode) && s.progress >= 85));
   const serverWaiting = key === "server" && p.running && !s.portOpen;
   el.classList.toggle("on", p.running && p.owned && !serverWaiting);
   el.classList.toggle("ext", p.running && !p.owned);
@@ -1831,7 +1838,7 @@ async function runChecks(forLaunch) {
   $("checksTitle").textContent = "Checking setup…";
   $("checkList").innerHTML = `<div class="empty">Looking at installs, ports and profiles…</div>`;
   $("checksLaunch").hidden = true;
-  const profile = state.mode === "host" ? null : state.profileId;
+  const profile = noGame(state.mode) ? null : state.profileId;
   let list = [];
   try {
     list = await invoke("health_check", { mode: state.mode, profile });

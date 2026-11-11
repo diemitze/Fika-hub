@@ -64,12 +64,12 @@ pub fn headless_dir(s: &Settings) -> Option<PathBuf> {
         .or_else(|| exe_dir().filter(ok))
 }
 
-/// Where the game connects. A saved address only applies to game-only mode, since
-/// the other modes start the server on this PC.
+/// Where the game or headless connects. A saved address only applies to the modes
+/// that don't start the server on this PC.
 pub fn game_addr(s: &Settings, mode: &str) -> String {
     let port = host_dir(s).as_deref().map(install::server_port).unwrap_or(6969);
     let saved = s.server_address.trim();
-    if mode != "join" || saved.is_empty() {
+    if !remote_mode(mode) || saved.is_empty() {
         return format!("127.0.0.1:{port}");
     }
     let saved = saved
@@ -81,6 +81,19 @@ pub fn game_addr(s: &Settings, mode: &str) -> String {
     } else {
         format!("{saved}:{port}")
     }
+}
+
+pub fn remote_mode(mode: &str) -> bool {
+    mode == "join" || mode == "headless"
+}
+
+/// A typed-in ID wins, since a server on another machine leaves nothing to read here.
+pub fn headless_id(s: &Settings) -> Option<String> {
+    let typed = s.headless_profile.trim();
+    if !typed.is_empty() {
+        return Some(typed.to_string());
+    }
+    host_dir(s).and_then(|h| profiles::headless_ids(&h).into_iter().next())
 }
 
 #[derive(Serialize)]
@@ -216,10 +229,12 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
         .map(PathBuf::from)
         .filter(|p| install::player_problem(p).is_none());
 
-    if mode != "join" && host.is_none() {
+    let local_server = mode == "full" || mode == "host";
+    let wants_game = mode == "full" || mode == "join";
+    if local_server && host.is_none() {
         return Err("Set the host install in Settings first.".into());
     }
-    if mode != "host" {
+    if wants_game {
         if player.is_none() {
             return Err("Set your game install in Settings first.".into());
         }
@@ -228,14 +243,18 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
         }
     }
     let headless = headless_dir(&s);
-    // the profile lives on the server, the client in its own folder
-    let headless_id = host
-        .as_deref()
-        .and_then(|h| profiles::headless_ids(h).into_iter().next())
-        .filter(|_| headless.is_some());
+    let headless_id = headless_id(&s).filter(|_| headless.is_some());
+    if mode == "headless" {
+        if headless.is_none() {
+            return Err("Set the headless install in Settings first.".into());
+        }
+        if headless_id.is_none() {
+            return Err("Enter the headless profile ID in Settings first.".into());
+        }
+    }
     let port = host.as_deref().map(install::server_port).unwrap_or(6969);
     let addr = game_addr(&s, &mode);
-    if mode != "join" && s.backup_on_launch {
+    if local_server && s.backup_on_launch {
         if let Some(h) = host.as_deref() {
             match backups::create(h, "launch", s.backup_keep) {
                 Ok(Some(_)) => core.logs.push_line(logs::SERVER, "[Fika Hub] Profiles backed up.".into()),
