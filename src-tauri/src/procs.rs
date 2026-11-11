@@ -28,6 +28,7 @@ pub struct Stack {
     pub headless_hold: AtomicBool,
     pub supervising: AtomicBool,
     pub restarting: AtomicBool,
+    pub server_crashes: Mutex<Vec<Instant>>,
     pub headless_plan: Mutex<Option<(PathBuf, String, u16, String)>>,
     pub stage: Mutex<(String, u8)>,
     /// when the current server boot began, for the ETA
@@ -257,6 +258,25 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         let code_txt = code.map(|x| x.to_string()).unwrap_or_else(|| "?".into());
         note(&c, SERVER, &format!("SPT server exited on its own (exit code {code_txt})."));
         record("server_crash", json!({ "code": code }));
+        if !c.settings.lock().unwrap().auto_restart_server {
+            return;
+        }
+        // a server that dies on boot every time would otherwise loop forever
+        let recent = {
+            let mut v = c.stack.server_crashes.lock().unwrap();
+            v.retain(|t: &Instant| t.elapsed() < Duration::from_secs(600));
+            v.push(Instant::now());
+            v.len()
+        };
+        if recent > 3 {
+            note(&c, SERVER, "Server crashed 3 times in 10 minutes, not restarting it again.");
+            return;
+        }
+        note(&c, SERVER, "Restarting server in 5s.");
+        std::thread::sleep(Duration::from_secs(5));
+        if alive(&c, my) {
+            let _ = restart_server(&c, "crash");
+        }
     });
     Ok(())
 }
@@ -601,7 +621,8 @@ pub fn restart_server(core: &Arc<Core>, by: &str) -> Result<(), String> {
 }
 
 fn restart_server_inner(core: &Arc<Core>, by: &str) -> Result<(), String> {
-    if !core.stack.active.load(SeqCst) || !child_alive(&core.stack.server) {
+    // a crashed child stays in the slot, so this also covers restarting after a crash
+    if !core.stack.active.load(SeqCst) || core.stack.server.lock().unwrap().is_none() {
         return Err("The server wasn't started from here.".into());
     }
     let host = crate::host_dir(&core.settings.lock().unwrap()).ok_or("Host install isn't set.")?;
