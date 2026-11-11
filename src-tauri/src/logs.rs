@@ -141,9 +141,7 @@ pub fn tail(logs: Arc<Logs>, idx: usize, path_fn: impl Fn() -> Option<PathBuf> +
                 new_head.clear();
             }
             let recreated = !head.is_empty() && !new_head.starts_with(&head[..head.len().min(new_head.len())]);
-            if head.len() < 96 {
-                head = new_head;
-            } else if recreated {
+            if head.len() < 96 || recreated {
                 head = new_head;
             }
 

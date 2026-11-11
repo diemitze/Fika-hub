@@ -28,6 +28,8 @@ pub struct Stack {
     pub headless_hold: AtomicBool,
     pub supervising: AtomicBool,
     pub restarting: AtomicBool,
+    /// the current server opened its port, so an exit from here on is a crash and not a failed boot
+    pub server_ready: AtomicBool,
     pub server_crashes: Mutex<Vec<Instant>>,
     pub headless_plan: Mutex<Option<(PathBuf, String, u16, String)>>,
     pub stage: Mutex<(String, u8)>,
@@ -84,6 +86,32 @@ fn backend_args(token: &str, addr: &str) -> String {
     format!("-token={token} -config={{'BackendUrl':'https://{addr}','Version':'live','MatchingVersion':'live'}}")
 }
 
+/// Puts a child in a job that dies with this process, so a crashed or task-killed Hub
+/// doesn't leave the server or headless running. The game is left out on purpose.
+fn tie_to_hub(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::*;
+    static JOB: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let job = *JOB.get_or_init(|| unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return 0;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const _,
+            std::mem::size_of_val(&info) as u32,
+        );
+        job as usize
+    });
+    if job != 0 {
+        unsafe { AssignProcessToJobObject(job as _, child.as_raw_handle() as _) };
+    }
+}
+
 fn child_alive(slot: &Mutex<Option<Child>>) -> bool {
     let mut g = slot.lock().unwrap();
     match g.as_mut() {
@@ -137,6 +165,7 @@ pub fn stop_all(core: &Core, why: &str) {
     }
     core.stack.gen.fetch_add(1, SeqCst);
     core.stack.supervising.store(false, SeqCst);
+    core.stack.server_ready.store(false, SeqCst);
     close_game(&core.stack.game);
     kill_slot(&core.stack.headless);
     kill_slot(&core.stack.server);
@@ -180,12 +209,16 @@ fn wait_port(core: &Core, my: u64, port: u16, watch_server: bool) -> bool {
             return false;
         }
         if install::port_listening(port) {
+            if watch_server {
+                core.stack.server_ready.store(true, SeqCst);
+            }
             if let Some(t) = core.stack.boot_start.lock().unwrap().take().filter(|_| watch_server) {
                 record_boot(t.elapsed().as_secs());
             }
             return true;
         }
-        if watch_server && !child_alive(&core.stack.server) {
+        // a restart briefly empties the slot, the new server comes up on the same port
+        if watch_server && !child_alive(&core.stack.server) && !core.stack.restarting.load(SeqCst) {
             core.stack.boot_start.lock().unwrap().take();
             note(core, SERVER, "SPT server exited before it was ready. Check the output above.");
             return false;
@@ -208,6 +241,8 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         .creation_flags(NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Couldn't start SPT.Server.exe: {e}"))?;
+    tie_to_hub(&child);
+    core.stack.server_ready.store(false, SeqCst);
 
     for pipe in [
         child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
@@ -252,7 +287,8 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
                 _ => return,
             }
         };
-        if !alive(&c, my) || c.stack.stage.lock().unwrap().1 < 100 {
+        // before the port opened, wait_port reports the exit instead
+        if !alive(&c, my) || !c.stack.server_ready.load(SeqCst) {
             return;
         }
         let code_txt = code.map(|x| x.to_string()).unwrap_or_else(|| "?".into());
@@ -268,7 +304,7 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
             v.push(Instant::now());
             v.len()
         };
-        if recent > 3 {
+        if recent >= 3 {
             note(&c, SERVER, "Server crashed 3 times in 10 minutes, not restarting it again.");
             return;
         }
@@ -297,6 +333,7 @@ fn spawn_eft(dir: &Path, args: &str, hidden: bool) -> Result<Child, String> {
 fn supervise_headless(core: Arc<Core>, my: u64, host: PathBuf, token: String, port: u16, addr: String) {
     *core.stack.headless_plan.lock().unwrap() = Some((host.clone(), token.clone(), port, addr.clone()));
     core.stack.headless_hold.store(false, SeqCst);
+    core.stack.force_restart.store(false, SeqCst);
     core.stack.supervising.store(true, SeqCst);
     std::thread::spawn(move || {
         supervise_loop(&core, my, &host, &token, port, &addr);
@@ -317,6 +354,7 @@ fn server_up(port: u16, addr: &str) -> bool {
 
 fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16, addr: &str) {
     let core = core.clone();
+    let mut crashes: Vec<Instant> = vec![];
     loop {
         if !alive(&core, my) {
             return;
@@ -331,6 +369,7 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
         let args = format!("{} -nographics -batchmode", backend_args(token, addr));
         match spawn_eft(host, &args, true) {
             Ok(c) => {
+                tie_to_hub(&c);
                 *core.stack.headless.lock().unwrap() = Some(c);
                 // a stop may have emptied the slot between the spawn and here
                 if !alive(&core, my) {
@@ -363,6 +402,15 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
             return;
+        }
+        // a headless that dies on start (bad profile, missing dll) would otherwise respawn forever
+        if !forced {
+            crashes.retain(|t| t.elapsed() < Duration::from_secs(600));
+            crashes.push(Instant::now());
+            if crashes.len() >= 5 {
+                note(&core, HEADLESS, "Headless crashed 5 times in 10 minutes, not restarting it again.");
+                return;
+            }
         }
         note(
             &core,
@@ -450,11 +498,20 @@ pub fn apply_display_mode(player: &Path, mode: &str) {
     }
 }
 
+pub fn game_running(core: &Core) -> bool {
+    child_alive(&core.stack.game)
+}
+
 pub fn start_game(core: &Arc<Core>, my: u64, player: &Path, profile: &str, addr: &str) -> Result<(), String> {
     let mode = core.settings.lock().unwrap().display_mode.clone();
     apply_display_mode(player, &mode);
     let child = spawn_eft(player, &backend_args(profile, addr), false)?;
     *core.stack.game.lock().unwrap() = Some(child);
+    // a Stop during the display-mode write found an empty slot and would miss this game
+    if !alive(core, my) {
+        kill_slot(&core.stack.game);
+        return Err("Stopped before the game started.".into());
+    }
     note(core, GAME, "Game started.");
 
     let c = core.clone();
@@ -499,6 +556,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
     }
     let my = core.stack.gen.fetch_add(1, SeqCst) + 1;
     core.stack.restarts.store(0, SeqCst);
+    core.stack.force_restart.store(false, SeqCst);
     core.stack.server_crashes.lock().unwrap().clear();
     *core.stack.headless_plan.lock().unwrap() = None;
     *core.stack.mode.lock().unwrap() = plan.mode.clone();
@@ -532,9 +590,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
             }
             set_stage(&core, "Starting headless", 65);
             match (plan.headless.clone(), plan.headless_id.clone()) {
-                (Some(dir), Some(id)) => {
-                    supervise_headless(core.clone(), my, dir, id, plan.port, format!("127.0.0.1:{}", plan.port))
-                }
+                (Some(dir), Some(id)) => supervise_headless(core.clone(), my, dir, id, plan.port, format!("127.0.0.1:{}", plan.port)),
                 (None, _) => note(
                     &core,
                     HEADLESS,
@@ -604,7 +660,7 @@ pub fn current_gen(core: &Core) -> u64 {
 }
 
 pub fn restart_headless(core: &Core) {
-    if child_alive(&core.stack.headless) {
+    if child_alive(&core.stack.headless) && core.stack.supervising.load(SeqCst) {
         core.stack.force_restart.store(true, SeqCst);
         kill_slot(&core.stack.headless);
     }
@@ -634,7 +690,7 @@ fn restart_server_inner(core: &Arc<Core>, by: &str) -> Result<(), String> {
     record("server_restart", json!({ "by": by }));
     set_stage(core, "Restarting server", 35);
     kill_slot(&core.stack.server);
-    if core.stack.headless.lock().unwrap().is_some() {
+    if core.stack.headless.lock().unwrap().is_some() && core.stack.supervising.load(SeqCst) {
         core.stack.force_restart.store(true, SeqCst);
         kill_slot(&core.stack.headless);
     }

@@ -62,13 +62,12 @@ pub fn build(core: &Core, out: &Path) -> Result<(), String> {
         zip.write_all(bytes).map_err(|e| e.to_string())
     };
 
-    // the webhook URL is a secret, everything else in settings helps debugging
+    // the webhook URL is a secret and Fika uses profile ids as session cookies
     let mut redacted = serde_json::to_value(&s).unwrap_or_default();
-    if let Some(v) = redacted
-        .get_mut("discordWebhook")
-        .filter(|v| v.as_str().is_some_and(|x| !x.is_empty()))
-    {
-        *v = "(set, removed from bundle)".into();
+    for key in ["discordWebhook", "headlessProfile", "lastProfile"] {
+        if let Some(v) = redacted.get_mut(key).filter(|v| v.as_str().is_some_and(|x| !x.is_empty())) {
+            *v = "(set, removed from bundle)".into();
+        }
     }
     add(
         "settings.json",

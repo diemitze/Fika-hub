@@ -10,6 +10,7 @@ const MAX_DEFER: Duration = Duration::from_secs(30 * 60);
 pub struct State {
     pub next_restart: AtomicU64,
     fired_day: Mutex<String>,
+    fired_at: Mutex<Option<Instant>>,
     warned_day: Mutex<String>,
     pending_since: Mutex<Option<Instant>>,
     said_deferred: AtomicBool,
@@ -104,8 +105,17 @@ fn tick_restart(core: &Arc<Core>) {
         note(core, "Scheduled restart in 5 minutes.");
         discord_event(core, "Server restarts in 5 minutes.");
     }
-    if until == 0 && !fired_today && !pending {
+    // a 10 minute window, so a slow tick or a server mid-reboot at that minute doesn't skip the day.
+    // fired_at covers a window that crosses midnight, where the day string already changed.
+    let since_target = (now.minute - target).rem_euclid(1440);
+    let fired_recently = st
+        .fired_at
+        .lock()
+        .unwrap()
+        .is_some_and(|t| t.elapsed() < Duration::from_secs(30 * 60));
+    if since_target < 10 && !fired_today && !fired_recently && !pending {
         *st.fired_day.lock().unwrap() = now.day.clone();
+        *st.fired_at.lock().unwrap() = Some(Instant::now());
         *st.pending_since.lock().unwrap() = Some(Instant::now());
         st.said_deferred.store(false, SeqCst);
     }
@@ -121,6 +131,10 @@ fn tick_restart(core: &Arc<Core>) {
             }
             return;
         }
+    }
+    // a restart already in progress (a crash restart, or the user) gets another try next tick
+    if core.stack.restarting.load(SeqCst) {
+        return;
     }
     *st.pending_since.lock().unwrap() = None;
     discord_event(core, "Server is restarting now.");
@@ -312,8 +326,8 @@ fn tick_discord(core: &Core) {
         return;
     }
     *st.last_post.lock().unwrap() = Some(Instant::now());
+    // no forced retry on failure: a dead webhook would get hit every tick, the interval retries instead
     if let Err(e) = post_status(core) {
         note(core, &format!("Discord update failed: {e}"));
-        st.force_post.store(true, SeqCst);
     }
 }

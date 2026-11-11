@@ -213,10 +213,47 @@ fn strip_json_comments(s: &str) -> String {
     out
 }
 
+/// Drops commas that sit right before a closing bracket, outside strings.
+fn strip_trailing_commas(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut in_str = false;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if in_str {
+            if c == '\\' && i + 1 < b.len() {
+                out.push(c);
+                out.push(b[i + 1]);
+                i += 2;
+                continue;
+            }
+            in_str = c != '"';
+        } else if c == '"' {
+            in_str = true;
+        } else if c == ','
+            && b[i + 1..]
+                .iter()
+                .find(|x| !x.is_whitespace())
+                .is_some_and(|x| *x == '}' || *x == ']')
+        {
+            i += 1;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
 pub fn validate(name: &str, text: &str) -> Result<String, String> {
     let ext = ext_of(Path::new(name));
     match ext.as_str() {
-        "json" | "jsonc" => serde_json::from_str::<serde_json::Value>(&strip_json_comments(text))
+        // the lenient formats allow trailing commas, plain .json stays strict
+        "jsonc" | "json5" => serde_json::from_str::<serde_json::Value>(&strip_trailing_commas(&strip_json_comments(text)))
+            .map(|_| "Valid JSON.".to_string())
+            .map_err(|e| format!("JSON error at line {}, column {}: {}", e.line(), e.column(), e)),
+        "json" => serde_json::from_str::<serde_json::Value>(&strip_json_comments(text))
             .map(|_| "Valid JSON.".to_string())
             .map_err(|e| format!("JSON error at line {}, column {}: {}", e.line(), e.column(), e)),
         "xml" => roxmltree::Document::parse(text)
@@ -224,6 +261,39 @@ pub fn validate(name: &str, text: &str) -> Result<String, String> {
             .map_err(|e| format!("XML error: {e}")),
         _ => Ok(format!(".{ext} isn't syntax-checked.")),
     }
+}
+
+const KEEP_BACKUPS: usize = 20;
+
+/// Keeps a copy of a file's old contents in .fikarunner-backups and prunes that file's
+/// oldest copies past KEEP_BACKUPS. Returns the timestamp used.
+pub fn backup_old(dir: &Path, name: &str, old: &[u8]) -> Result<u128, String> {
+    let backups = dir.join(".fikarunner-backups");
+    std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    std::fs::write(backups.join(format!("{name}.{ts}.bak")), old).map_err(|e| e.to_string())?;
+
+    let prefix = format!("{name}.");
+    let mut mine: Vec<(u128, PathBuf)> = std::fs::read_dir(&backups)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let f = e.file_name().to_string_lossy().to_string();
+            let t = f.strip_prefix(&prefix)?.strip_suffix(".bak")?.parse().ok()?;
+            Some((t, e.path()))
+        })
+        .collect();
+    if mine.len() > KEEP_BACKUPS {
+        mine.sort_by_key(|(t, _)| *t);
+        for (_, p) in &mine[..mine.len() - KEEP_BACKUPS] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+    Ok(ts)
 }
 
 pub fn save(path: &Path, text: &str, expected: &str) -> Result<String, String> {
@@ -242,14 +312,7 @@ pub fn save(path: &Path, text: &str, expected: &str) -> Result<String, String> {
     bytes.extend_from_slice(text.as_bytes());
 
     let dir = path.parent().ok_or("bad path")?;
-    let backups = dir.join(".fikarunner-backups");
-    std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let backup = backups.join(format!("{name}.{ts}.bak"));
-    std::fs::write(&backup, &current).map_err(|e| e.to_string())?;
+    let ts = backup_old(dir, &name, &current)?;
 
     let tmp = dir.join(format!("{name}.{ts}.tmp"));
     std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;

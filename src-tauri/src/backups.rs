@@ -231,7 +231,8 @@ pub fn restore(host: &Path, source: &str, id: &str, only: &[String], keep: usize
     // keep what's there now, in case the restore was a mistake
     create(host, "before restore", keep)?;
     for (stem, f) in &picked {
-        std::fs::copy(f, dst.join(format!("{stem}.json"))).map_err(|e| format!("{stem}: {e}"))?;
+        let bytes = std::fs::read(f).map_err(|e| format!("{stem}: {e}"))?;
+        crate::settings::write_atomic(&dst.join(format!("{stem}.json")), &bytes).map_err(|e| format!("{stem}: {e}"))?;
     }
     Ok(picked.len())
 }

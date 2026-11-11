@@ -139,7 +139,7 @@ $("winClose").onclick = async () => {
     !(await confirmBox("Quit Fika Hub?", "This stops the server, headless and game that were started from here.", "Stop and quit"))
   )
     return;
-  invoke("quit");
+  invoke("quit").catch((e) => toast(String(e), true));
 };
 
 function goto(page) {
@@ -219,20 +219,26 @@ document.addEventListener("keydown", (e) => {
 
 async function boot() {
   [0, 1, 2].forEach(resetRuns);
-  const b = await invoke("boot");
+  let b;
+  try {
+    b = await invoke("boot");
+  } catch (e) {
+    toast(String(e), true);
+    return;
+  }
   applyBoot(b);
   state.mode = b.settings.launchMode || "full";
   state.profileId = b.settings.lastProfile;
   renderMode();
   await restoreUi();
   if (b.hostProblem) showSetup();
-  await refreshProfiles();
+  await refreshProfiles().catch(() => {});
   loadConnection();
   pollStatus();
   setInterval(pollStatus, 1000);
   setInterval(pollLogs, 500);
   setInterval(pollLobby, 3000);
-  setInterval(refreshProfiles, 15000);
+  setInterval(() => refreshProfiles().catch(() => {}), 15000);
 }
 
 // ---- remembered UI state (ui.json next to settings) ----
@@ -919,7 +925,19 @@ function resetRuns(i) {
 }
 const curRun = (i) => state.runs[i][state.runs[i].length - 1].id;
 
+let logsBusy = false;
 async function pollLogs() {
+  // a slow tick would otherwise re-request the same seq and append lines twice
+  if (logsBusy) return;
+  logsBusy = true;
+  try {
+    await pollLogsOnce();
+  } finally {
+    logsBusy = false;
+  }
+}
+
+async function pollLogsOnce() {
   for (let i = 0; i < 3; i++) {
     let c;
     try {
@@ -939,6 +957,8 @@ async function pollLogs() {
       }
     }
     if (!c.lines.length) continue;
+    // the first fetch replays the backend buffer, so old crash lines must not alert again
+    const live = state.logSeq[i] > 0;
     state.logSeq[i] = c.lines[c.lines.length - 1][0];
     let newRun = false;
     const added = c.lines.map(([, text]) => {
@@ -954,7 +974,7 @@ async function pollLogs() {
       if (l.lvl === "error") state.logErr[i]++;
       if (SERIOUS_RE.test(text)) state.logBad[i]++;
       if (i === 0) state.bootPhase = phaseOf(text) || state.bootPhase;
-      watchLine(i, text);
+      if (live) watchLine(i, text);
       return l;
     });
     state.logs[i].push(...added);
@@ -1027,9 +1047,14 @@ function shownLines() {
 
 function lineHtml(l) {
   if (l.lvl === "gap") return `<div class="ln gap"></div>`;
-  let t = esc(l.text);
   const q = $("logSearch").value.trim();
-  if (q) t = t.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), (m) => `<mark>${m}</mark>`);
+  // match the raw text and escape each piece, so searching "amp" can't land inside an entity
+  let t = q
+    ? l.text
+        .split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"))
+        .map((part, k) => (k % 2 ? `<mark>${esc(part)}</mark>` : esc(part)))
+        .join("")
+    : esc(l.text);
   t = t.replace(/^(\[?\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\]?|\[\d{4}-\d{2}-\d{2}[^\]]*\])/, '<span class="ts">$1</span>');
   const cls = l.text.startsWith(RUN_MARK) ? "mine run" : l.lvl;
   return `<div class="ln ${cls}">${t || " "}</div>`;

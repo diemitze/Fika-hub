@@ -40,7 +40,8 @@ pub struct Change {
 }
 
 pub fn list(root_key: &str) -> Vec<Snapshot> {
-    let Ok(rd) = std::fs::read_dir(dir(root_key)) else { return vec![] };
+    let Ok(key) = safe(root_key) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(dir(key)) else { return vec![] };
     let mut out: Vec<Snapshot> = rd
         .flatten()
         .filter_map(|e| std::fs::read_to_string(e.path().join("snapshot.json")).ok())
@@ -131,16 +132,10 @@ pub fn restore(root_key: &str, id: &str, root: &Path, only: Option<Vec<String>>)
         }
         if let (Some(old), Some(parent)) = (&old, dst.parent()) {
             let name = dst.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let backups = parent.join(".fikarunner-backups");
-            std::fs::create_dir_all(&backups).map_err(|e| e.to_string())?;
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            std::fs::write(backups.join(format!("{name}.{ts}.bak")), old).map_err(|e| e.to_string())?;
+            crate::configs::backup_old(parent, &name, old)?;
         }
         std::fs::create_dir_all(dst.parent().unwrap()).map_err(|e| e.to_string())?;
-        std::fs::write(&dst, &new).map_err(|e| format!("{rel}: {e}"))?;
+        crate::settings::write_atomic(&dst, &new).map_err(|e| format!("{rel}: {e}"))?;
         n += 1;
     }
     Ok(n)

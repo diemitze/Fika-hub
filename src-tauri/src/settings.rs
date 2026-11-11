@@ -107,10 +107,14 @@ fn path() -> PathBuf {
 
 impl Settings {
     pub fn load() -> Self {
-        std::fs::read_to_string(path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        let Ok(s) = std::fs::read_to_string(path()) else {
+            return Self::default();
+        };
+        serde_json::from_str(&s).unwrap_or_else(|_| {
+            // keep the broken file around, the next save would otherwise overwrite it for good
+            let _ = std::fs::copy(path(), path().with_extension("json.bad"));
+            Self::default()
+        })
     }
 
     pub fn save(&self) {
@@ -119,7 +123,18 @@ impl Settings {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(p, json);
+            let _ = write_atomic(&p, json.as_bytes());
         }
     }
+}
+
+/// Writes next to the target and renames over it, so a crash mid-write never leaves a truncated file.
+pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }

@@ -164,7 +164,7 @@ fn boot(core: Ctx) -> Boot {
     boot_info(&core)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_dir(core: Ctx, kind: String, path: String) -> Result<Boot, String> {
     let p = PathBuf::from(&path);
     let problem = match kind.as_str() {
@@ -214,13 +214,17 @@ fn save_settings(core: Ctx, settings: Settings) {
     schedule::request_post(&core);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn status(core: Ctx) -> procs::Status {
     procs::status(&core)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option<String>) -> Result<(), String> {
+    // procs::launch checks too, this one skips the backup and history record for a rejected launch
+    if core.stack.active.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("Already running.".into());
+    }
     let s = core.settings.lock().unwrap().clone();
     let host = host_dir(&s);
     let player = s
@@ -310,7 +314,7 @@ async fn stop(core: Ctx<'_>) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn start_game(core: Ctx, profile: String) -> Result<(), String> {
     let s = core.settings.lock().unwrap().clone();
     let player = s
@@ -321,6 +325,9 @@ fn start_game(core: Ctx, profile: String) -> Result<(), String> {
     let addr = game_addr(&s, &core.stack.mode.lock().unwrap());
     if !core.stack.active.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("Start the stack first.".into());
+    }
+    if procs::game_running(&core) {
+        return Err("The game is already running.".into());
     }
     procs::start_game(core.inner(), procs::current_gen(&core), &player, &profile, &addr)
 }
@@ -385,7 +392,7 @@ fn start_headless(core: Ctx) -> Result<(), String> {
     procs::start_headless(core.inner())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn history(limit: usize) -> Vec<serde_json::Value> {
     history::read(limit.min(5000))
 }
@@ -430,7 +437,7 @@ async fn backup_list(core: Ctx<'_>) -> Result<Vec<backups::Backup>, String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn backup_create(core: Ctx) -> Result<Option<backups::Backup>, String> {
     let keep = core.settings.lock().unwrap().backup_keep;
     backups::create(&host_or_err(&core)?, "manual", keep)
@@ -464,7 +471,7 @@ fn backup_open() -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn snapshot_list(root: String) -> Vec<snapshots::Snapshot> {
     snapshots::list(&root)
 }
@@ -485,12 +492,12 @@ async fn snapshot_compare(core: Ctx<'_>, root: String, id: String) -> Result<Vec
         .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn snapshot_read(root: String, id: String, rel: String) -> Result<String, String> {
     snapshots::read_file(&root, &id, &rel)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn snapshot_restore(core: Ctx, root: String, id: String, only: Option<Vec<String>>) -> Result<usize, String> {
     let path = config_root(&core, &root)?;
     snapshots::restore(&root, &id, &path, only)
@@ -501,13 +508,13 @@ fn snapshot_delete(root: String, id: String) -> Result<(), String> {
     snapshots::delete(&root, &id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn config_backups(core: Ctx, root: String, rel: String) -> Result<Vec<snapshots::FileBackup>, String> {
     let r = config_root(&core, &root)?;
     Ok(snapshots::file_backups(&configs::resolve(&r, &rel)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn config_backup_read(core: Ctx, root: String, rel: String, name: String) -> Result<String, String> {
     let r = config_root(&core, &root)?;
     snapshots::read_file_backup(&configs::resolve(&r, &rel)?, &name)
@@ -531,7 +538,7 @@ fn notify(title: String, body: String) {
     notify::show(&title, &body);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_profiles(core: Ctx) -> Vec<profiles::Profile> {
     let s = core.settings.lock().unwrap().clone();
     host_dir(&s).map(|h| profiles::list(&h)).unwrap_or_default()
@@ -641,7 +648,7 @@ async fn config_list(core: Ctx<'_>, root: String, all: bool) -> Result<Vec<confi
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn config_read(core: Ctx, root: String, rel: String) -> Result<configs::Doc, String> {
     let r = config_root(&core, &root)?;
     configs::read(&configs::resolve(&r, &rel)?)
@@ -652,7 +659,7 @@ fn config_validate(rel: String, text: String) -> Result<String, String> {
     configs::validate(&rel, &text)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn config_save(core: Ctx, root: String, rel: String, text: String, stamp: String) -> Result<String, String> {
     let r = config_root(&core, &root)?;
     configs::save(&configs::resolve(&r, &rel)?, &text, &stamp)
