@@ -499,6 +499,7 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
     }
     let my = core.stack.gen.fetch_add(1, SeqCst) + 1;
     core.stack.restarts.store(0, SeqCst);
+    core.stack.server_crashes.lock().unwrap().clear();
     *core.stack.headless_plan.lock().unwrap() = None;
     *core.stack.mode.lock().unwrap() = plan.mode.clone();
     set_stage(&core, "Starting", 5);

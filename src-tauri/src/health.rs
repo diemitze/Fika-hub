@@ -88,7 +88,7 @@ pub fn run(core: &Core, mode: &str, profile: Option<&str>) -> Vec<Check> {
                 Some("settings"),
             )),
         }
-        match crate::headless_id(&s) {
+        match crate::headless_id(&s, mode) {
             Some(id) => out.push(ok(format!("Headless profile {id}"))),
             None => out.push(bad(
                 "No headless profile ID.",

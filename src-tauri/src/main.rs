@@ -87,10 +87,10 @@ pub fn remote_mode(mode: &str) -> bool {
     mode == "join" || mode == "headless"
 }
 
-/// A typed-in ID wins, since a server on another machine leaves nothing to read here.
-pub fn headless_id(s: &Settings) -> Option<String> {
+/// The typed-in ID is only for a server on another machine, a local one has the real profile.
+pub fn headless_id(s: &Settings, mode: &str) -> Option<String> {
     let typed = s.headless_profile.trim();
-    if !typed.is_empty() {
+    if mode == "headless" && !typed.is_empty() {
         return Some(typed.to_string());
     }
     host_dir(s).and_then(|h| profiles::headless_ids(&h).into_iter().next())
@@ -243,7 +243,7 @@ fn launch(core: Ctx, window: tauri::WebviewWindow, mode: String, profile: Option
         }
     }
     let headless = headless_dir(&s);
-    let headless_id = headless_id(&s).filter(|_| headless.is_some());
+    let headless_id = headless_id(&s, &mode).filter(|_| headless.is_some());
     if mode == "headless" {
         if headless.is_none() {
             return Err("Set the headless install in Settings first.".into());
