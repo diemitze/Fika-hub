@@ -498,6 +498,16 @@ pub fn apply_display_mode(player: &Path, mode: &str) {
     }
 }
 
+/// Seconds the server started from here has been running, None for an outside server.
+pub fn server_uptime(core: &Core) -> Option<u64> {
+    let pid = core.stack.server.lock().unwrap().as_ref().map(|c| c.id())?;
+    let pid = sysinfo::Pid::from_u32(pid);
+    let mut guard = core.stack.sys.lock().unwrap();
+    let sys = guard.get_or_insert_with(System::new);
+    sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), false, ProcessRefreshKind::nothing());
+    sys.process(pid).map(|p| p.run_time())
+}
+
 pub fn game_running(core: &Core) -> bool {
     child_alive(&core.stack.game)
 }

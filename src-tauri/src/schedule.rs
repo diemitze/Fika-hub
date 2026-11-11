@@ -103,7 +103,12 @@ fn tick_restart(core: &Arc<Core>) {
     if until == 5 && *st.warned_day.lock().unwrap() != now.day {
         *st.warned_day.lock().unwrap() = now.day.clone();
         note(core, "Scheduled restart in 5 minutes.");
-        discord_event(core, "Server restarts in 5 minutes.");
+        let why = if s.restart_wait_raids {
+            "Waits for running raids to finish (30 min at most)."
+        } else {
+            "Running raids will be cut off."
+        };
+        discord_event(core, "Restart in 5 minutes", why, AMBER);
     }
     // a 10 minute window, so a slow tick or a server mid-reboot at that minute doesn't skip the day.
     // fired_at covers a window that crosses midnight, where the day string already changed.
@@ -127,7 +132,12 @@ fn tick_restart(core: &Arc<Core>) {
         if busy > 0 {
             if !st.said_deferred.swap(true, SeqCst) {
                 note(core, "Scheduled restart waits for running raids to finish (30 min at most).");
-                discord_event(core, "Restart is waiting for running raids to finish.");
+                discord_event(
+                    core,
+                    "Restart is waiting",
+                    &format!("{busy} raid{} still running, 30 min at most.", if busy == 1 { "" } else { "s" }),
+                    AMBER,
+                );
             }
             return;
         }
@@ -137,15 +147,13 @@ fn tick_restart(core: &Arc<Core>) {
         return;
     }
     *st.pending_since.lock().unwrap() = None;
-    discord_event(core, "Server is restarting now.");
+    discord_event(core, "Restarting now", "The server will be back in a few minutes.", AMBER);
     if let Err(e) = crate::procs::restart_server(core, "schedule") {
         note(core, &format!("Scheduled restart failed: {e}"));
     }
 }
 
 // ---------------- Discord ----------------
-
-const ACTIVITY: [&str; 5] = ["In menu", "In raid", "In stash", "In hideout", "On the flea"];
 
 fn map_name(id: &str) -> String {
     match id.to_lowercase().as_str() {
@@ -176,63 +184,126 @@ fn state_file() -> std::path::PathBuf {
     crate::settings::data_dir().join("discord.json")
 }
 
-fn status_payload(core: &Core, online: bool) -> serde_json::Value {
+const GREEN: u32 = 0x3fd18b;
+const AMBER: u32 = 0xf0b232;
+const GREY: u32 = 0x4e5058;
+
+fn plural(n: usize, one: &str) -> String {
+    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
+}
+
+fn short_dur(secs: u64) -> String {
+    let (h, m) = (secs / 3600, secs / 60 % 60);
+    if h > 0 {
+        format!("{h}h {m}m")
+    } else {
+        format!("{m}m")
+    }
+}
+
+/// Discord caps field values at 1024 characters.
+fn clip(s: String) -> String {
+    if s.chars().count() <= 1000 {
+        return s;
+    }
+    s.chars().take(997).collect::<String>() + "..."
+}
+
+/// RFC 3339 UTC, what an embed timestamp wants.
+fn iso_utc(secs: u64) -> String {
+    let days = (secs / 86400) as i64;
+    let rem = secs % 86400;
+    // civil-from-days (Howard Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + (m <= 2) as i64;
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem / 60 % 60, rem % 60)
+}
+
+fn status_payload(core: &Core, online: bool, last_online: Option<u64>) -> serde_json::Value {
     let now = crate::history::now();
-    let mut fields = vec![];
-    let mut desc = format!("Updated <t:{now}:R>");
-    if online {
-        let l = lobby(core).unwrap_or_default();
-        let players = if l.players.is_empty() {
-            "Nobody online".to_string()
-        } else {
-            l.players
-                .iter()
-                .map(|p| {
-                    let act = ACTIVITY.get(p.activity as usize).copied().unwrap_or("Online");
-                    let at = p
-                        .location
-                        .as_deref()
-                        .filter(|_| p.activity == 1)
-                        .map(|m| format!(", {}", map_name(m)))
-                        .unwrap_or_default();
-                    format!("**{}** · {act}{at}", p.nickname)
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        fields.push(json!({ "name": format!("Players ({})", l.players.len()), "value": players }));
-        if !l.raids.is_empty() {
-            let raids = l
-                .raids
-                .iter()
-                .map(|r| {
-                    let st = ["Loading", "In raid", "Finished"].get(r.status as usize).copied().unwrap_or("?");
-                    format!(
-                        "{} · {} player{} · {st}",
-                        map_name(&r.location),
-                        r.players,
-                        if r.players == 1 { "" } else { "s" }
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            fields.push(json!({ "name": format!("Raids ({})", l.raids.len()), "value": raids }));
-        }
-        if let Some(v) = l.version {
-            desc += &format!(" · Fika {v}");
-        }
+    if !online {
+        let desc = last_online.map(|t| format!("Last online <t:{t}:R>")).unwrap_or_default();
+        return json!({
+            "username": "Fika Hub",
+            "embeds": [{ "title": "○ Offline", "color": GREY, "description": desc }]
+        });
     }
+
+    let l = lobby(core).unwrap_or_default();
+    let (in_raid, in_menus): (Vec<&fika::Player>, Vec<&fika::Player>) = l.players.iter().partition(|p| p.activity == 1);
+
+    let mut sub = vec![];
+    if let Some(up) = crate::procs::server_uptime(core) {
+        sub.push(format!("Up for {}", short_dur(up)));
+    }
+    if let Some(v) = &l.version {
+        sub.push(format!("Fika {v}"));
+    }
+    let host = crate::host_dir(&core.settings.lock().unwrap());
+    if let Some(v) = host.as_deref().and_then(install::spt_version) {
+        sub.push(format!("SPT {v}"));
+    }
+
+    let mut fields = vec![
+        json!({ "name": "In raid", "value": in_raid.len().to_string(), "inline": true }),
+        json!({ "name": "In menus", "value": in_menus.len().to_string(), "inline": true }),
+    ];
     let next = core.sched.next_restart.load(SeqCst);
-    if online && next > 0 {
-        fields.push(json!({ "name": "Next restart", "value": format!("<t:{next}:t> (<t:{next}:R>)") }));
+    if next > 0 {
+        fields.push(json!({ "name": "Next restart", "value": format!("<t:{next}:R>"), "inline": true }));
     }
+
+    // one block per map, with the players grouped by where their raid is
+    let mut maps: Vec<(String, Vec<&fika::Player>)> = vec![];
+    for p in &in_raid {
+        let map = p.location.as_deref().map(map_name).unwrap_or_else(|| "Raid".into());
+        match maps.iter_mut().find(|(m, _)| *m == map) {
+            Some((_, v)) => v.push(p),
+            None => maps.push((map, vec![p])),
+        }
+    }
+    for (map, ps) in maps.iter().take(20) {
+        let mut name = format!("{map} · {}", plural(ps.len(), "player"));
+        if let Some(t) = ps.iter().map(|p| p.since).filter(|s| *s > 0).min() {
+            name += &format!(" · {} min in", now.saturating_sub(t as u64) / 60);
+        }
+        let names = ps.iter().map(|p| p.nickname.as_str()).collect::<Vec<_>>().join(", ");
+        fields.push(json!({ "name": name, "value": clip(format!("└ {names}")) }));
+    }
+    if !in_menus.is_empty() {
+        let names = in_menus
+            .iter()
+            .map(|p| match p.activity {
+                2 => format!("{} (stash)", p.nickname),
+                3 => format!("{} (hideout)", p.nickname),
+                4 => format!("{} (flea)", p.nickname),
+                _ => p.nickname.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        fields.push(json!({ "name": "In menus", "value": clip(format!("└ {names}")) }));
+    }
+
+    let title = match l.players.len() {
+        0 => "● Online · nobody on".to_string(),
+        n => format!("● Online · {}", plural(n, "player")),
+    };
     json!({
         "username": "Fika Hub",
         "embeds": [{
-            "title": if online { "Server online" } else { "Server offline" },
-            "color": if online { 0x3fd18b } else { 0x5b6572 },
-            "description": desc,
+            "title": title,
+            "color": GREEN,
+            "description": sub.join(" · "),
             "fields": fields,
+            "footer": { "text": "Fika Hub · Last updated" },
+            "timestamp": iso_utc(now),
         }]
     })
 }
@@ -270,11 +341,15 @@ pub fn post_status(core: &Core) -> Result<(), String> {
         return Err("That isn't a Discord webhook URL.".into());
     }
     let online = core.stack.active.load(SeqCst) && lobby(core).is_some();
-    let body = status_payload(core, online);
-    let saved: serde_json::Value = std::fs::read_to_string(state_file())
+    let mut saved: serde_json::Value = std::fs::read_to_string(state_file())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
+    // the offline card says when it was last up, which has to survive a Hub restart
+    if online {
+        saved["lastOnline"] = crate::history::now().into();
+    }
+    let body = status_payload(core, online, saved.get("lastOnline").and_then(|v| v.as_u64()));
     let key = url.rsplit('/').nth(1).unwrap_or("").to_string();
     let old = saved.get(&key).and_then(|v| v.as_str()).map(String::from);
 
@@ -286,20 +361,23 @@ pub fn post_status(core: &Core) -> Result<(), String> {
         }
         send(core, &url, &body, None).await
     })?;
+    let mut m = saved.as_object().cloned().unwrap_or_default();
     if let Some(id) = id {
-        let mut m = saved.as_object().cloned().unwrap_or_default();
         m.insert(key, id.into());
-        let _ = std::fs::write(state_file(), serde_json::Value::Object(m).to_string());
     }
+    let _ = std::fs::write(state_file(), serde_json::Value::Object(m).to_string());
     Ok(())
 }
 
-pub fn discord_event(core: &Core, text: &str) {
+pub fn discord_event(core: &Core, title: &str, text: &str, color: u32) {
     let s = core.settings.lock().unwrap().clone();
     if !s.discord_enabled || !s.discord_events || !valid_hook(s.discord_webhook.trim()) {
         return;
     }
-    let body = json!({ "username": "Fika Hub", "content": text });
+    let body = json!({
+        "username": "Fika Hub",
+        "embeds": [{ "title": title, "description": text, "color": color }]
+    });
     let _ = tauri::async_runtime::block_on(send(core, s.discord_webhook.trim(), &body, None));
 }
 
@@ -329,5 +407,15 @@ fn tick_discord(core: &Core) {
     // no forced retry on failure: a dead webhook would get hit every tick, the interval retries instead
     if let Err(e) = post_status(core) {
         note(core, &format!("Discord update failed: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn iso_utc_matches_known_dates() {
+        assert_eq!(super::iso_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(super::iso_utc(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(super::iso_utc(1_793_738_096), "2026-11-03T20:34:56Z");
     }
 }
