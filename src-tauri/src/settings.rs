@@ -37,6 +37,7 @@ pub struct Settings {
     pub discord_webhook: String,
     pub discord_interval: u32,
     pub discord_events: bool,
+    pub discord_crashes: bool,
 }
 
 impl Default for Settings {
@@ -69,6 +70,7 @@ impl Default for Settings {
             discord_webhook: String::new(),
             discord_interval: 5,
             discord_events: true,
+            discord_crashes: true,
         }
     }
 }

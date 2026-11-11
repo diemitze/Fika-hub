@@ -184,8 +184,8 @@ fn state_file() -> std::path::PathBuf {
     crate::settings::data_dir().join("discord.json")
 }
 
-const GREEN: u32 = 0x3fd18b;
-const AMBER: u32 = 0xf0b232;
+pub const GREEN: u32 = 0x3fd18b;
+pub const AMBER: u32 = 0xf0b232;
 const GREY: u32 = 0x4e5058;
 
 fn plural(n: usize, one: &str) -> String {
@@ -308,8 +308,7 @@ fn status_payload(core: &Core, online: bool, last_online: Option<u64>) -> serde_
     })
 }
 
-async fn send(core: &Core, url: &str, body: &serde_json::Value, edit: Option<&str>) -> Result<Option<String>, String> {
-    let http = &core.web;
+async fn send(http: &reqwest::Client, url: &str, body: &serde_json::Value, edit: Option<&str>) -> Result<Option<String>, String> {
     let req = match edit {
         Some(id) => http.patch(format!("{url}/messages/{id}")),
         None => http.post(format!("{url}?wait=true")),
@@ -355,11 +354,11 @@ pub fn post_status(core: &Core) -> Result<(), String> {
 
     let id = tauri::async_runtime::block_on(async {
         if let Some(id) = &old {
-            if send(core, &url, &body, Some(id)).await?.is_some() {
+            if send(&core.web, &url, &body, Some(id)).await?.is_some() {
                 return Ok(Some(id.clone()));
             }
         }
-        send(core, &url, &body, None).await
+        send(&core.web, &url, &body, None).await
     })?;
     let mut m = saved.as_object().cloned().unwrap_or_default();
     if let Some(id) = id {
@@ -378,7 +377,26 @@ pub fn discord_event(core: &Core, title: &str, text: &str, color: u32) {
         "username": "Fika Hub",
         "embeds": [{ "title": title, "description": text, "color": color }]
     });
-    let _ = tauri::async_runtime::block_on(send(core, s.discord_webhook.trim(), &body, None));
+    let _ = tauri::async_runtime::block_on(send(&core.web, s.discord_webhook.trim(), &body, None));
+}
+
+pub const RED: u32 = 0xe5484d;
+
+/// Crash and recovery alerts. Posts on its own thread so a slow Discord never delays a restart.
+pub fn discord_alert(core: &Core, title: &str, text: &str, color: u32) {
+    let s = core.settings.lock().unwrap().clone();
+    let url = s.discord_webhook.trim().to_string();
+    if !s.discord_enabled || !s.discord_crashes || !valid_hook(&url) {
+        return;
+    }
+    let body = json!({
+        "username": "Fika Hub",
+        "embeds": [{ "title": title, "description": text, "color": color, "timestamp": iso_utc(crate::history::now()) }]
+    });
+    let http = core.web.clone();
+    std::thread::spawn(move || {
+        let _ = tauri::async_runtime::block_on(send(&http, &url, &body, None));
+    });
 }
 
 pub fn request_post(core: &Core) {
