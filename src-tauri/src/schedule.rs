@@ -382,24 +382,13 @@ fn quip(title: &str) -> Option<&'static str> {
     let lines: &[&str] = match title {
         "Server crashed" => &[
             "Someone tell Nikita.",
-            "Killed in action. Insurance claim filed.",
             "Killed by: Unknown. Classic.",
             "The server walked into a claymore.",
             "Desync claims another victim.",
         ],
-        "Server keeps crashing" => &[
-            "At this point it's a lifestyle.",
-            "Three strikes, the server is benched.",
-            "Tagilla hits less often than this.",
-        ],
-        "Server is back up" => &[
-            "Survived. Extracted. Somehow.",
-            "Insurance came through.",
-            "Shook it off like a painkiller.",
-            "Respawned with full health.",
-        ],
+        "Server keeps crashing" => &["At this point it's a lifestyle.", "Three strikes, the server is benched."],
+        "Server is back up" => &["Insurance came through.", "Respawned with full health."],
         "Server failed to start" => &[
-            "Died in the hideout. Impressive.",
             "Stuck on the loading screen, as tradition demands.",
             "Somebody's mod had other plans.",
         ],
@@ -408,17 +397,13 @@ fn quip(title: &str) -> Option<&'static str> {
             "The headless got headshot. Ironic.",
             "Headless? More like helpless.",
         ],
-        "Headless keeps crashing" => &["The headless has filed for retirement.", "The headless has left the chat."],
+        "Headless keeps crashing" => &["The headless has given up.", "The headless has left the chat."],
         "Restart in 5 minutes" => &[
             "Find an extract, you have 5 minutes.",
             "Finish your raid or forever hold your loot.",
             "Good time to sell that junk on the flea.",
         ],
-        "Restart is waiting" => &[
-            "Someone is still looting Labs.",
-            "Waiting on the guy checking every jacket.",
-            "The server is camping the extract for you.",
-        ],
+        "Restart is waiting" => &["Someone is still looting Labs.", "Waiting on the guy checking every jacket."],
         "Restarting now" => &[
             "Turning it off and on again. Works every time.",
             "Brb, server is getting a coffee.",
