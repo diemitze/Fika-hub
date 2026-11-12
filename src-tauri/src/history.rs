@@ -36,6 +36,26 @@ pub fn read(limit: usize) -> Vec<Value> {
         .collect()
 }
 
+/// Drops every event older than `keep_from`, so a running session survives a clear.
+pub fn clear(keep_from: Option<u64>) {
+    let Some(from) = keep_from else {
+        let _ = std::fs::remove_file(path());
+        return;
+    };
+    let text = std::fs::read_to_string(path()).unwrap_or_default();
+    let kept: String = text
+        .lines()
+        .filter(|l| {
+            serde_json::from_str::<Value>(l)
+                .ok()
+                .and_then(|v| v["t"].as_u64())
+                .is_some_and(|t| t >= from)
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let _ = std::fs::write(path(), kept);
+}
+
 /// Called once at startup so the file can't grow forever.
 pub fn trim() {
     let text = std::fs::read_to_string(path()).unwrap_or_default();

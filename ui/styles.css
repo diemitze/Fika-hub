@@ -1858,6 +1858,10 @@ button:disabled {
   font-size: 12px;
   margin-top: 2px;
 }
+.hist-more {
+  display: block;
+  margin: 10px auto;
+}
 .session-tags {
   display: flex;
   gap: 6px;

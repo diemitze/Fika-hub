@@ -397,6 +397,11 @@ fn history(limit: usize) -> Vec<serde_json::Value> {
     history::read(limit.min(5000))
 }
 
+#[tauri::command(async)]
+fn history_clear(keep_from: Option<u64>) {
+    history::clear(keep_from)
+}
+
 #[tauri::command]
 async fn export_diagnostics(core: Ctx<'_>, app: tauri::AppHandle) -> Result<bool, String> {
     let stamp = history::now();
@@ -746,6 +751,7 @@ fn main() {
             stop_headless,
             start_headless,
             history,
+            history_clear,
             export_diagnostics,
             health_check,
             backup_list,

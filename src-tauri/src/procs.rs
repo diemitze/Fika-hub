@@ -393,6 +393,7 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             std::thread::sleep(Duration::from_millis(500));
         }
         let args = format!("{} -nographics -batchmode", backend_args(token, addr));
+        let started = Instant::now();
         match spawn_eft(host, &args, true) {
             Ok(c) => {
                 tie_to_hub(&c);
@@ -423,8 +424,17 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             record("headless_stop", json!({}));
             return;
         }
-        let forced = core.stack.force_restart.swap(false, SeqCst);
-        record(if forced { "headless_restart" } else { "headless_crash" }, json!({ "code": code }));
+        let mut forced = core.stack.force_restart.swap(false, SeqCst);
+        // Fika's restartAfterAmountOfRaids quits cleanly after a raid. A clean quit right
+        // after launch (wrong profile) still counts as a crash so the respawn guard catches it.
+        let planned = !forced && code == Some(0) && started.elapsed() >= Duration::from_secs(120);
+        if planned {
+            note(&core, HEADLESS, "Headless quit after its raid limit (planned restart).");
+            record("headless_restart", json!({ "code": code, "by": "raid_limit" }));
+            forced = true;
+        } else {
+            record(if forced { "headless_restart" } else { "headless_crash" }, json!({ "code": code }));
+        }
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
             alert(

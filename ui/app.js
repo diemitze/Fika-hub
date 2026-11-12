@@ -2001,8 +2001,15 @@ function sessionsFrom(events) {
 
 async function loadHistory() {
   const events = await invoke("history", { limit: 3000 }).catch(() => []);
-  const sessions = sessionsFrom(events).slice(0, 60);
+  const all = sessionsFrom(events);
+  const sessions = all.slice(0, state.histAll ? 60 : HIST_SHOWN);
   const live = state.status?.active;
+  state.histLive = live && all[0] && !all[0].end ? all[0].start : null;
+  const older = Math.min(all.length, 60) - HIST_SHOWN;
+  const toggle =
+    older <= 0
+      ? ""
+      : `<button class="ghost sm hist-more" id="histMore">${state.histAll ? "Show fewer" : `Show ${older} older`}</button>`;
   $("sessionList").innerHTML = sessions.length
     ? sessions
         .map((s, i) => {
@@ -2020,10 +2027,29 @@ async function loadHistory() {
       <div class="session-meta">${esc([l.profile, vers].filter(Boolean).join(" · "))}${s.why ? " · ended: " + esc(s.why) : ""}</div>
       ${tags.length ? `<div class="session-tags">${tags.join("")}</div>` : ""}</div>`;
         })
-        .join("")
+        .join("") + toggle
     : `<div class="empty">No sessions yet. They're recorded from the next launch on.</div>`;
+  if ($("histMore"))
+    $("histMore").onclick = () => {
+      state.histAll = !state.histAll;
+      loadHistory();
+    };
   loadBackups();
 }
+
+const HIST_SHOWN = 10;
+
+$("histClear").onclick = async () => {
+  const ok = await confirmBox(
+    "Clear session history?",
+    "Past sessions and their crash/restart tags are removed. A running session is kept.",
+    "Clear"
+  );
+  if (!ok) return;
+  await call("history_clear", { keepFrom: state.histLive ?? null });
+  state.histAll = false;
+  loadHistory();
+};
 
 const BK_REASON = { launch: "Before launch", manual: "Manual", "before restore": "Before a restore", spt: "SPT" };
 state.bk = { list: [], sel: null, picked: new Set(), src: "all" };
