@@ -56,6 +56,13 @@
           <span>Console</span>
           <i class="rail-badge" id="badgeConsole" hidden></i>
         </button>
+        <button class="rail-btn" data-page="raids" title="Raid summaries">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+          <span>Raids</span>
+        </button>
         <button class="rail-btn" data-page="configs" title="Mod configs">
           <svg viewBox="0 0 24 24">
             <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
@@ -114,6 +121,14 @@
                 <span class="go-sub" id="goSub">Full stack</span>
               </button>
             </div>
+          </div>
+
+          <div class="banner bad clickable" id="modFailBanner" hidden title="Show the issues">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3l10 18H2z" />
+              <path d="M12 10v5M12 18v.5" />
+            </svg>
+            <span id="modFailText"></span>
           </div>
 
           <div class="banner warn" id="mismatchBanner" hidden>
@@ -293,6 +308,9 @@
               <button class="tab" data-stream="2"><span class="tab-dot"></span>Game<i class="tab-err" hidden></i></button>
             </div>
             <div class="spacer"></div>
+            <button class="ghost sm issues-btn" id="issuesBtn" title="Errors in this run, grouped">
+              Issues <span class="count" id="issuesCount">0</span>
+            </button>
             <select class="select" id="logRun" title="Each restart starts a new run">
               <option value="current">Current run</option>
             </select>
@@ -310,6 +328,16 @@
               <button data-level="context" title="Each error with the lines around it">Errors + context</button>
             </div>
           </div>
+          <div class="issues card" id="issuesPanel" hidden>
+            <div class="card-head">
+              <h3>Issues</h3>
+              <span class="muted small" id="issuesSub"></span>
+              <div class="spacer"></div>
+              <button class="ghost sm" id="issuesCopy" title="Copies the list">Copy</button>
+              <button class="ghost sm" id="issuesClose">Close</button>
+            </div>
+            <div class="issue-list" id="issueList"></div>
+          </div>
           <div class="logwrap card">
             <div class="logview" id="logView"></div>
             <button class="jump" id="logJump" hidden>Jump to latest</button>
@@ -326,6 +354,28 @@
             <button class="ghost sm" id="logCopy" title="Copies the lines shown">Copy</button>
             <button class="ghost sm" id="logSave" title="Saves the full unfiltered log">Save</button>
             <button class="ghost sm" id="logClear">Clear</button>
+          </div>
+        </section>
+
+        <!-- ======================= RAIDS ======================= -->
+        <section class="page" id="page-raids">
+          <div class="raid-stats" id="raidStats"></div>
+          <div class="card" id="raidLiveCard" hidden>
+            <div class="card-head">
+              <h3>Running now</h3>
+              <span class="count" id="raidLiveCount">0</span>
+            </div>
+            <div class="raid-rows" id="raidLive"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Past raids</h3>
+              <span class="count" id="raidPastCount">0</span>
+              <div class="spacer"></div>
+              <select class="select" id="raidMap" title="Only this map"></select>
+              <button class="ghost sm" id="raidClear" title="Forget every recorded raid">Clear</button>
+            </div>
+            <div class="raid-rows" id="raidPast"></div>
           </div>
         </section>
 

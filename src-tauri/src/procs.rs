@@ -843,6 +843,8 @@ pub fn status(core: &Core) -> Status {
         }
     };
 
+    let game = info(own_game, &game_exe);
+    crate::ui_state::set_game_up(game.running);
     let (stage, progress) = core.stack.stage.lock().unwrap().clone();
     let boot_elapsed = core.stack.boot_start.lock().unwrap().map(|t| t.elapsed().as_secs());
     Status {
@@ -856,7 +858,7 @@ pub fn status(core: &Core) -> Status {
         port,
         server: info(own_server, &server_exe),
         headless: info(own_headless, &headless_exe),
-        game: info(own_game, &game_exe),
+        game,
         restarts: core.stack.restarts.load(SeqCst),
         headless_held: core.stack.headless_hold.load(SeqCst),
         can_start_headless: core.stack.active.load(SeqCst)

@@ -52,7 +52,7 @@ fn server_ours(core: &Core) -> bool {
     }
 }
 
-fn lobby(core: &Core) -> Option<fika::Lobby> {
+pub(crate) fn lobby(core: &Core) -> Option<fika::Lobby> {
     let s = core.settings.lock().unwrap().clone();
     let host = crate::host_dir(&s)?;
     let port = install::server_port(&host);

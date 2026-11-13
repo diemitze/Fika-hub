@@ -161,6 +161,7 @@ function goto(page) {
     loadNextRestart();
   }
   if (page === "history") loadHistory();
+  if (page === "raids") loadRaids();
   saveUi();
 }
 $$(".rail-btn").forEach((b) => (b.onclick = () => goto(b.dataset.page)));
@@ -1006,6 +1007,7 @@ async function pollLogsOnce() {
     state.badSeen[state.stream] = state.logBad[state.stream];
   }
   updateBadges();
+  refreshIssuesSoon();
 }
 
 function updateBadges() {
@@ -1083,6 +1085,7 @@ function renderLog(scrollEnd) {
   view.innerHTML = lines.length ? lines.map(lineHtml).join("") : `<div class="log-empty">${total ? "No lines match." : emptyText()}</div>`;
   $("logStats").textContent = `${lines.filter((l) => l.lvl !== "gap").length} of ${total} lines`;
   if (scrollEnd || $("logFollow").checked) view.scrollTop = view.scrollHeight;
+  renderIssues();
 }
 
 function emptyText() {
@@ -1194,6 +1197,157 @@ $("logClear").onclick = () => {
   updateBadges();
 };
 $("logOpen").onclick = () => call("open_folder", { which: ["host", "headless-log", "game-log"][state.stream] }).catch(() => {});
+
+// ============================ issues ============================
+
+const base = (p) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+
+// SPT's modloader-* locale strings and BepInEx's chainloader messages, turned into plain advice
+const MOD_RULES = [
+  [/Mod: (.+?) requires: (.+?) version: (.+?)\. Current installed version is: (.+)/, (m) => `${m[1]} needs ${m[2]} ${m[3]}, but ${m[4]} is installed.`],
+  [/Mod: (.+?) requires: (.+?) to be installed/, (m) => `${m[1]} needs ${m[2]}, which isn't installed. On 4.1 this can stop every server mod from loading.`],
+  [/NO MODS WILL BE LOADED/, () => "No server mods were loaded because of the problems above."],
+  [/Exception occured while loading a mod at path: (.+)/, (m) => `The mod in ${base(m[1])} threw an error while loading.`],
+  [/Mod: (.+?) is not compatible with the current version of SPT\. It was made for SPT: (\S+)/, (m) => `${m[1]} was made for SPT ${m[2]}.`],
+  [/requires a minimum SPT version of `(.+?)`/, (m) => `A mod needs at least SPT ${m[1]}.`],
+  [/Mod: (.+?) is incompatible with: (.+)/, (m) => `${m[1]} conflicts with ${m[2]}.`],
+  [/Mod \((.+?)\) is a client mod/, (m) => `${m[1]} is a client mod sitting in the server mods folder.`],
+  [/Mod \((.+?)\) is a pre-4\.0\.0 server mod/, (m) => `${m[1]} is an old pre-4.0 server mod.`],
+  [/more than one version of: (.+?) mod/, (m) => `${m[1]} is installed twice, so neither copy loads.`],
+  [/Failed to load mod metadata for: (.+)/, (m) => `${base(m[1])} has no readable mod metadata.`],
+  [/Duplicate mod metadata found for mod at path: (.+)/, (m) => `${base(m[1])} has its metadata twice.`],
+  [/A folder called: \((.+?)\) exists in your mods folder/, (m) => `${m[1]} was unpacked into the mods folder the wrong way.`],
+  [/Cyclic dependency detected/, () => "Two or more mods depend on each other in a loop. The server won't start."],
+  [/Could not load \[(.+?)\] because it has missing dependencies: (.+)/, (m) => `${m[1]} needs ${m[2]}.`],
+  [/Could not load \[(.+?)\] because it is incompatible with: (.+)/, (m) => `${m[1]} conflicts with ${m[2]}.`],
+  [/Skipping \[(.+?)\] because it has a dependency that was not loaded/, (m) => `${m[1]} was skipped because something it needs failed.`],
+  [/Error loading \[(.+?)\]/, (m) => `${m[1]} failed to load.`],
+];
+const SPT_LINE = /^\[[^\]]*\]\[(\w+)\]\[([^\]]+)\]\s*(.*)$/;
+const BEP_LINE = /^\[(\w+)\s*:\s*([^\]]+?)\s*\]\s*(.*)$/;
+const BAD_LEVEL = /^(error|fatal|critical)$/i;
+
+// parsed once per line and kept on it, the poll re-reads the same lines every tick
+function issueOf(l) {
+  if (l.iss !== undefined) return l.iss;
+  l.iss = null;
+  const t = l.text;
+  if (t.startsWith("[Fika Hub]")) {
+    if (SERIOUS_RE.test(t)) l.iss = { kind: "crash", src: "Fika Hub", msg: t.slice(11), key: t };
+    return l.iss;
+  }
+  let lvl = "",
+    src = "",
+    msg = t;
+  const m = SPT_LINE.exec(t) || BEP_LINE.exec(t);
+  if (m) {
+    [, lvl, src, msg] = m;
+    src = src.split(".").pop();
+  }
+  for (const [re, hint] of MOD_RULES) {
+    const r = re.exec(msg);
+    if (r) return (l.iss = { kind: "mod", src, msg, hint: hint(r), key: "mod|" + msg });
+  }
+  const bad = m ? BAD_LEVEL.test(lvl) : l.lvl === "error";
+  if (!bad) return null;
+  // ids, item names, paths and numbers vary between repeats of the same problem
+  const norm = msg.replace(/\S*[_\d/\\]\S*/g, "*");
+  l.iss = { kind: /fatal|critical/i.test(lvl) ? "fatal" : "error", src, msg, key: src + "|" + norm };
+  return l.iss;
+}
+
+function issuesIn(stream, runFilter) {
+  const groups = new Map();
+  for (const l of state.logs[stream]) {
+    if (!runFilter(l)) continue;
+    const iss = issueOf(l);
+    if (!iss) continue;
+    const g = groups.get(iss.key);
+    if (g) {
+      g.n++;
+      if (g.vars.size < 50) g.vars.add(iss.msg);
+    } else groups.set(iss.key, { ...iss, n: 1, vars: new Set([iss.msg]) });
+  }
+  const rank = { mod: 0, crash: 1, fatal: 2, error: 3 };
+  return [...groups.values()].sort((a, b) => rank[a.kind] - rank[b.kind] || b.n - a.n);
+}
+
+const ISSUE_TAG = { mod: ["bad", "Mod load"], crash: ["bad", "Crash"], fatal: ["bad", "Fatal"], error: ["warn", "Error"] };
+
+function renderIssues() {
+  const list = issuesIn(state.stream, inRun);
+  const serious = list.some((g) => g.kind !== "error");
+  $("issuesCount").textContent = list.length > 99 ? "99+" : list.length;
+  $("issuesCount").classList.toggle("bad", serious);
+  if ($("issuesPanel").hidden) return;
+  const mods = list.filter((g) => g.kind === "mod").length;
+  $("issuesSub").textContent = list.length
+    ? [mods && plural(mods, "mod problem"), plural(list.length - mods, "other issue")].filter(Boolean).join(" · ")
+    : "";
+  $("issueList").innerHTML = list.length
+    ? list
+        .slice(0, 200)
+        .map((g, i) => {
+          const [cls, label] = ISSUE_TAG[g.kind];
+          return `<div class="issue" data-i="${i}" title="Show it in the log"><span class="mod-tag ${cls}">${label}</span>
+        <div class="issue-msg">${g.src ? `<span class="issue-src">${esc(g.src)}</span>` : ""}${esc(g.msg)}${g.hint ? `<span class="issue-hint">${esc(g.hint)}</span>` : ""}</div>
+        <span class="issue-n" title="${g.vars.size > 1 ? "Similar lines with different ids or names" : ""}">${g.n > 1 ? "×" + g.n : ""}${g.vars.size > 1 ? ` · ${g.vars.size >= 50 ? "50+" : g.vars.size} kinds` : ""}</span></div>`;
+        })
+        .join("")
+    : `<div class="empty">Nothing went wrong in this run.</div>`;
+  $$("#issueList .issue").forEach(
+    (el) =>
+      (el.onclick = () => {
+        const g = list[+el.dataset.i];
+        // a digit-free chunk of the message, so the filter matches every repeat
+        $("logSearch").value = (g.msg.split(/\d/).sort((a, b) => b.length - a.length)[0] || g.msg).trim().slice(0, 60);
+        renderLog(true);
+      }),
+  );
+  state.issueList = list;
+}
+
+function toggleIssues(open = $("issuesPanel").hidden) {
+  $("issuesPanel").hidden = !open;
+  $("issuesBtn").classList.toggle("on", open);
+  renderIssues();
+}
+$("issuesBtn").onclick = () => toggleIssues();
+$("issuesClose").onclick = () => toggleIssues(false);
+$("issuesCopy").onclick = async () => {
+  const t = (state.issueList || []).map((g) => `[${ISSUE_TAG[g.kind][1]}] ${g.src ? g.src + ": " : ""}${g.msg}${g.n > 1 ? ` (x${g.n})` : ""}${g.hint ? "\n  " + g.hint : ""}`).join("\n");
+  if (!t) return toast("Nothing to copy");
+  try {
+    await navigator.clipboard.writeText(t);
+    toast("Copied the issues");
+  } catch {
+    toast("Clipboard unavailable", true);
+  }
+};
+
+// the dashboard only shouts about mods that didn't load, not routine errors
+function renderModBanner() {
+  const counts = [0, 1].map((i) => issuesIn(i, (l) => l.run === curRun(i)).filter((g) => g.kind === "mod"));
+  const [srv, hl] = counts;
+  const b = $("modFailBanner");
+  b.hidden = !srv.length && !hl.length;
+  if (b.hidden) return;
+  const where = [srv.length && plural(srv.length, "server mod problem"), hl.length && plural(hl.length, "headless plugin problem")].filter(Boolean);
+  $("modFailText").textContent = `${where.join(" and ")} this run. ${(srv[0] || hl[0]).hint}`;
+  b.onclick = () => {
+    setStream(srv.length ? 0 : 1);
+    goto("console");
+    toggleIssues(true);
+  };
+}
+
+let issuesT = 0;
+function refreshIssuesSoon() {
+  if (Date.now() - issuesT < 1500) return;
+  issuesT = Date.now();
+  renderModBanner();
+  if (state.page === "console") renderIssues();
+}
 
 // ============================ configs ============================
 
@@ -1962,6 +2116,114 @@ function paintHeadlessPower(s) {
     alertUser("crash", "Headless is back up", "It restarted after the crash.");
   }
 }
+
+// ============================ raids ============================
+
+const RAID_END = { finished: ["ok", "Finished"], "headless crashed": ["bad", "Headless crashed"], "server stopped": ["warn", "Server stopped"] };
+
+async function loadRaids() {
+  const r = await invoke("raids_list", { limit: 500 }).catch(() => null);
+  if (!r) return;
+  state.raidData = r;
+  renderRaids();
+}
+
+function myNick() {
+  return state.profiles.find((p) => p.id === state.profileId)?.nickname;
+}
+
+function raidPlayersHtml(players) {
+  return players
+    .map((p) => {
+      if (typeof p === "string") return `<span class="rp">${esc(p)}</span>`;
+      const bits = [];
+      if (p.kills) bits.push(plural(p.kills, "kill"));
+      if (p.bossKills) bits.push(plural(p.bossKills, "boss"));
+      if (p.xp) bits.push(human(p.xp) + " XP");
+      return `<span class="rp"><b>${esc(p.name)}</b>${p.outcome ? `<span class="out ${p.outcome}">${p.outcome}</span>` : ""}${bits.length ? `<span class="muted">${bits.join(" · ")}</span>` : ""}</span>`;
+    })
+    .join("");
+}
+
+function renderRaids() {
+  const d = state.raidData || { done: [], live: [] };
+  const done = d.done.slice().reverse();
+
+  const maps = [...new Set(done.map((r) => r.map.toLowerCase()))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
+  const sel = $("raidMap");
+  const want = state.raidMap || "all";
+  sel.innerHTML = `<option value="all">All maps</option>` + maps.map((m) => `<option value="${esc(m)}">${esc(mapName(m))}</option>`).join("");
+  sel.value = maps.includes(want) ? want : "all";
+  sel.disabled = maps.length < 2;
+  const shown = sel.value === "all" ? done : done.filter((r) => r.map.toLowerCase() === sel.value);
+
+  // stats follow the map filter, and "you" is whoever is picked under Playing as
+  const me = myNick();
+  const mine = shown.flatMap((r) => r.players.filter((p) => p.name === me));
+  const surv = mine.filter((p) => p.outcome === "survived").length;
+  const died = mine.filter((p) => p.outcome === "died").length;
+  const time = shown.reduce((s, r) => s + Math.max(0, r.end - r.start), 0);
+  const bad = shown.filter((r) => r.why !== "finished").length;
+  const peak = Math.max(0, ...shown.map((r) => r.peakRam || 0));
+  const tiles = [
+    ["Raids", shown.length, shown.length ? "avg " + dur(Math.round(time / shown.length)) : "none yet"],
+    ["Time in raid", time ? dur(time) : "-", plural(new Set(shown.map((r) => r.map.toLowerCase())).size, "map")],
+    [me ? `${me} survived` : "Survival", surv + died ? Math.round((surv / (surv + died)) * 100) + "%" : "-", `${surv} out, ${died} dead`],
+    ["Kills", mine.reduce((s, p) => s + (p.kills || 0), 0), human(mine.reduce((s, p) => s + (p.xp || 0), 0)) + " XP earned"],
+    ["Headless peak", peak ? bytes(peak) : "-", "highest RAM in one raid"],
+    ["Cut short", bad, bad ? "crashes or server stops" : "every raid finished"],
+  ];
+  $("raidStats").innerHTML = tiles
+    .map(([k, v, s]) => `<div class="card raid-stat"><small>${esc(k)}</small><b>${esc(v)}</b><span>${esc(s)}</span></div>`)
+    .join("");
+
+  $("raidLiveCard").hidden = !d.live.length;
+  $("raidLiveCount").textContent = d.live.length;
+  const now = Date.now() / 1000;
+  $("raidLive").innerHTML = d.live
+    .map((r) => {
+      const len = r.start ? dur(Math.round(now - r.start)) : "loading";
+      const sub = [`Started by ${r.host || "?"}`, r.headless && r.peakRam && `headless peak ${bytes(r.peakRam)}`].filter(Boolean).join(" · ");
+      return `<div class="raid-row live"><div class="raid-top"><b>${esc(mapName(r.map))}</b>
+        <span class="mod-tag">${r.side === 1 ? "Scav" : "PMC"}</span>${r.headless ? '<span class="tag hl">Headless</span>' : ""}
+        ${r.hlCrashed ? '<span class="mod-tag bad">Headless crashed</span>' : ""}<div class="spacer"></div><span class="muted small">${len}</span></div>
+        <div class="raid-sub">${esc(sub)}</div>${r.players.length ? `<div class="raid-players">${raidPlayersHtml(r.players)}</div>` : ""}</div>`;
+    })
+    .join("");
+
+  $("raidPastCount").textContent = shown.length;
+  $("raidPast").innerHTML = shown.length
+    ? shown
+        .slice(0, 150)
+        .map((r) => {
+          const [cls, label] = RAID_END[r.why] || ["", r.why];
+          const sub = [
+            `Started by ${r.host || "?"}`,
+            r.loading > 5 && `${dur(r.loading)} loading`,
+            r.headless && r.peakRam && `headless peak ${bytes(r.peakRam)}, avg CPU ${r.avgCpu}%`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<div class="raid-row ${cls}"><div class="raid-top"><b>${esc(mapName(r.map))}</b>
+        <span class="mod-tag">${r.side === 1 ? "Scav" : "PMC"}</span>${r.headless ? '<span class="tag hl">Headless</span>' : ""}
+        <span class="mod-tag ${cls}">${esc(label)}</span><div class="spacer"></div>
+        <span class="muted small">${when(r.start)} · ${dur(Math.max(0, r.end - r.start))}</span></div>
+        <div class="raid-sub">${esc(sub)}</div>${r.players.length ? `<div class="raid-players">${raidPlayersHtml(r.players)}</div>` : ""}</div>`;
+        })
+        .join("")
+    : `<div class="empty">${done.length ? "No raids on this map yet." : "No raids recorded yet. Raids on a server started from Fika Hub show up here once they end."}</div>`;
+}
+
+$("raidMap").onchange = () => {
+  state.raidMap = $("raidMap").value;
+  renderRaids();
+};
+$("raidClear").onclick = async () => {
+  if (!(await confirmBox("Clear raid history?", "Every recorded raid summary is removed.", "Clear"))) return;
+  await call("raids_clear").catch(() => {});
+  loadRaids();
+};
+setInterval(() => state.page === "raids" && loadRaids(), 5000);
 
 // ============================ history ============================
 

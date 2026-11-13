@@ -2972,3 +2972,175 @@ button.primary:disabled {
 .secret-box .eye:disabled {
   display: none;
 }
+
+/* ---------- boot issues ---------- */
+.banner.bad {
+  background: rgba(255, 95, 95, 0.08);
+  border: 1px solid rgba(255, 95, 95, 0.32);
+  color: var(--err);
+}
+.banner.clickable {
+  cursor: pointer;
+}
+.banner.clickable:hover {
+  background: rgba(255, 95, 95, 0.13);
+}
+.issues-btn.on {
+  border-color: var(--line-2);
+  color: var(--text);
+}
+.issues-btn .count.bad {
+  background: rgba(255, 95, 95, 0.18);
+  color: var(--err);
+}
+.issues {
+  flex: none;
+  max-height: 38%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.issue-list {
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+.issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.issue:hover {
+  background: var(--panel-2);
+}
+.issue-src {
+  color: var(--faint);
+  font: 600 11px var(--mono);
+  margin-right: 6px;
+}
+.issue-msg {
+  font: 12px var(--mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.issue-hint {
+  display: block;
+  color: var(--muted);
+  font: 12px var(--sans);
+  white-space: normal;
+  margin-top: 2px;
+}
+.issue-n {
+  color: var(--faint);
+  font: 600 11px var(--mono);
+  white-space: nowrap;
+}
+
+/* ---------- raids page ---------- */
+.raid-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.raid-stat {
+  padding: 14px 16px;
+}
+.raid-stat small {
+  display: block;
+  color: var(--faint);
+  font: 600 10.5px var(--display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.raid-stat b {
+  display: block;
+  font: 700 22px var(--display);
+  margin-top: 4px;
+}
+.raid-stat span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.raid-rows {
+  display: flex;
+  flex-direction: column;
+}
+.raid-row {
+  position: relative;
+  padding: 12px 18px 12px 20px;
+  border-top: 1px solid var(--line);
+}
+.raid-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--faint);
+}
+.raid-row.ok::before {
+  background: var(--ok);
+}
+.raid-row.bad::before {
+  background: var(--err);
+}
+.raid-row.warn::before {
+  background: var(--accent);
+}
+.raid-row.live::before {
+  background: var(--info);
+}
+.raid-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.raid-top b {
+  font: 600 15px var(--display);
+}
+.raid-top .spacer {
+  flex: 1;
+}
+.raid-sub {
+  color: var(--faint);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.raid-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.rp .out {
+  font: 700 10px var(--sans);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.rp .out.survived {
+  color: var(--ok);
+}
+.rp .out.died {
+  color: var(--err);
+}
+.rp .muted {
+  font-size: 11.5px;
+}

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::Mutex;
 use tauri::{PhysicalPosition, PhysicalSize, WebviewWindow};
 
@@ -51,9 +52,16 @@ pub fn set(ui: Value) {
     save();
 }
 
+// Tarkov shoves the window onto its own screen, so moves while it runs aren't the user's
+static GAME_UP: AtomicBool = AtomicBool::new(false);
+
+pub fn set_game_up(up: bool) {
+    GAME_UP.store(up, Relaxed);
+}
+
 /// Called on move and resize. Keeps the last normal size while maximized so un-maximizing lands right.
 pub fn track(w: &tauri::Window) {
-    if w.is_minimized().unwrap_or(false) {
+    if GAME_UP.load(Relaxed) || w.is_minimized().unwrap_or(false) {
         return;
     }
     let max = w.is_maximized().unwrap_or(false);
@@ -91,4 +99,39 @@ pub fn restore(w: &WebviewWindow) {
     if g.max {
         let _ = w.maximize();
     }
+}
+
+/// On focus while the game runs, puts the window back on the screen it was saved on.
+pub fn snap_back(w: &tauri::Window) {
+    if !GAME_UP.load(Relaxed) {
+        return;
+    }
+    let w = w.clone();
+    // let the restore from minimized settle before reading where it landed
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let Some(g) = with(|f| f.window) else { return };
+        if w.is_minimized().unwrap_or(false) {
+            return;
+        }
+        let (cx, cy) = (g.x + g.w as i32 / 2, g.y + g.h as i32 / 2);
+        let contains = |m: &tauri::Monitor| {
+            let (p, s) = (m.position(), m.size());
+            cx >= p.x && cx < p.x + s.width as i32 && cy >= p.y && cy < p.y + s.height as i32
+        };
+        let monitors = w.available_monitors().unwrap_or_default();
+        let Some(home) = monitors.iter().find(|m| contains(m)) else { return };
+        let Ok(Some(now)) = w.current_monitor() else { return };
+        if now.position() == home.position() {
+            return;
+        }
+        let was_max = w.is_maximized().unwrap_or(false);
+        if was_max {
+            let _ = w.unmaximize();
+        }
+        let _ = w.set_position(PhysicalPosition::new(g.x, g.y));
+        if g.max || was_max {
+            let _ = w.maximize();
+        }
+    });
 }

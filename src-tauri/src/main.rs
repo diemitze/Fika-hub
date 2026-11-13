@@ -11,6 +11,7 @@ mod logs;
 mod notify;
 mod procs;
 mod profiles;
+mod raids;
 mod schedule;
 mod settings;
 mod snapshots;
@@ -402,6 +403,16 @@ fn history_clear(keep_from: Option<u64>) {
     history::clear(keep_from)
 }
 
+#[tauri::command(async)]
+fn raids_list(limit: usize) -> serde_json::Value {
+    serde_json::json!({ "done": raids::read(limit.min(500)), "live": raids::live() })
+}
+
+#[tauri::command(async)]
+fn raids_clear() {
+    raids::clear()
+}
+
 #[tauri::command]
 async fn export_diagnostics(core: Ctx<'_>, app: tauri::AppHandle) -> Result<bool, String> {
     let stamp = history::now();
@@ -703,7 +714,9 @@ fn main() {
         sched: schedule::State::default(),
     });
     history::trim();
+    raids::trim();
     schedule::start(core.clone());
+    raids::start(core.clone());
 
     // Tails run for the app's whole life so a stack started elsewhere still shows up
     let c = core.clone();
@@ -728,6 +741,7 @@ fn main() {
         .manage(core)
         .on_window_event(move |window, event| match event {
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => ui_state::track(window),
+            tauri::WindowEvent::Focused(true) => ui_state::snap_back(window),
             tauri::WindowEvent::Destroyed => {
                 ui_state::flush();
                 procs::stop_all(&on_close, "window closed");
@@ -752,6 +766,8 @@ fn main() {
             start_headless,
             history,
             history_clear,
+            raids_list,
+            raids_clear,
             export_diagnostics,
             health_check,
             backup_list,
