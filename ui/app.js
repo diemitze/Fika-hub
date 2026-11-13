@@ -1168,12 +1168,22 @@ $("logOpen").onclick = () => call("open_folder", { which: ["host", "headless-log
 
 // ============================ issues ============================
 
-const base = (p) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+const base = (p) =>
+  p
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .pop();
 
 // SPT's modloader-* locale strings and BepInEx's chainloader messages, turned into plain advice
 const MOD_RULES = [
-  [/Mod: (.+?) requires: (.+?) version: (.+?)\. Current installed version is: (.+)/, (m) => `${m[1]} needs ${m[2]} ${m[3]}, but ${m[4]} is installed.`],
-  [/Mod: (.+?) requires: (.+?) to be installed/, (m) => `${m[1]} needs ${m[2]}, which isn't installed. On 4.1 this can stop every server mod from loading.`],
+  [
+    /Mod: (.+?) requires: (.+?) version: (.+?)\. Current installed version is: (.+)/,
+    (m) => `${m[1]} needs ${m[2]} ${m[3]}, but ${m[4]} is installed.`,
+  ],
+  [
+    /Mod: (.+?) requires: (.+?) to be installed/,
+    (m) => `${m[1]} needs ${m[2]}, which isn't installed. On 4.1 this can stop every server mod from loading.`,
+  ],
   [/NO MODS WILL BE LOADED/, () => "No server mods were loaded because of the problems above."],
   [/Exception occured while loading a mod at path: (.+)/, (m) => `The mod in ${base(m[1])} threw an error while loading.`],
   [/Mod: (.+?) is not compatible with the current version of SPT\. It was made for SPT: (\S+)/, (m) => `${m[1]} was made for SPT ${m[2]}.`],
@@ -1283,7 +1293,11 @@ function toggleIssues(open = $("issuesPanel").hidden) {
 $("issuesBtn").onclick = () => toggleIssues();
 $("issuesClose").onclick = () => toggleIssues(false);
 $("issuesCopy").onclick = async () => {
-  const t = (state.issueList || []).map((g) => `[${ISSUE_TAG[g.kind][1]}] ${g.src ? g.src + ": " : ""}${g.msg}${g.n > 1 ? ` (x${g.n})` : ""}${g.hint ? "\n  " + g.hint : ""}`).join("\n");
+  const t = (state.issueList || [])
+    .map(
+      (g) => `[${ISSUE_TAG[g.kind][1]}] ${g.src ? g.src + ": " : ""}${g.msg}${g.n > 1 ? ` (x${g.n})` : ""}${g.hint ? "\n  " + g.hint : ""}`,
+    )
+    .join("\n");
   if (!t) return toast("Nothing to copy");
   try {
     await navigator.clipboard.writeText(t);
@@ -1300,7 +1314,9 @@ function renderModBanner() {
   const b = $("modFailBanner");
   b.hidden = !srv.length && !hl.length;
   if (b.hidden) return;
-  const where = [srv.length && plural(srv.length, "server mod problem"), hl.length && plural(hl.length, "headless plugin problem")].filter(Boolean);
+  const where = [srv.length && plural(srv.length, "server mod problem"), hl.length && plural(hl.length, "headless plugin problem")].filter(
+    Boolean,
+  );
   $("modFailText").textContent = `${where.join(" and ")} this run. ${(srv[0] || hl[0]).hint}`;
   b.onclick = () => {
     setStream(srv.length ? 0 : 1);
@@ -1374,9 +1390,7 @@ function renderCfgList() {
   const groups = {};
   for (const e of list.slice(0, CFG_SHOWN)) (groups[e.group] ||= []).push(e);
   const more =
-    list.length > CFG_SHOWN
-      ? `<div class="empty">Showing ${CFG_SHOWN} of ${list.length} files. Search to find the rest.</div>`
-      : "";
+    list.length > CFG_SHOWN ? `<div class="empty">Showing ${CFG_SHOWN} of ${list.length} files. Search to find the rest.</div>` : "";
   const head = [
     ["Pinned", pinned],
     ["Recent", recent],
@@ -2091,7 +2105,11 @@ function paintHeadlessPower(s) {
 
 // ============================ raids ============================
 
-const RAID_END = { finished: ["ok", "Finished"], "headless crashed": ["bad", "Headless crashed"], "server stopped": ["warn", "Server stopped"] };
+const RAID_END = {
+  finished: ["ok", "Finished"],
+  "headless crashed": ["bad", "Headless crashed"],
+  "server stopped": ["warn", "Server stopped"],
+};
 
 async function loadRaids() {
   const r = await invoke("raids_list", { limit: RAIDS_KEPT }).catch(() => null);
@@ -2146,7 +2164,13 @@ function renderRaids() {
   const bad = shown.filter((r) => r.why !== "finished").length;
   const peak = Math.max(0, ...shown.map((r) => r.peakRam || 0));
   const tiles = [
-    ["Raids", shown.length, shown.length ? "avg " + dur(Math.round(time / shown.length)) + (d.done.length >= RAIDS_KEPT ? ` · last ${RAIDS_KEPT}` : "") : "none yet"],
+    [
+      "Raids",
+      shown.length,
+      shown.length
+        ? "avg " + dur(Math.round(time / shown.length)) + (d.done.length >= RAIDS_KEPT ? ` · last ${RAIDS_KEPT}` : "")
+        : "none yet",
+    ],
     ["Time in raid", time ? dur(time) : "-", plural(new Set(shown.map((r) => r.map.toLowerCase())).size, "map")],
     [me ? `${me} survived` : "Survival", surv + died ? Math.round((surv / (surv + died)) * 100) + "%" : "-", `${surv} out, ${died} dead`],
     ["Kills", mine.reduce((s, p) => s + (p.kills || 0), 0), human(mine.reduce((s, p) => s + (p.xp || 0), 0)) + " XP earned"],
@@ -2163,7 +2187,9 @@ function renderRaids() {
   $("raidLive").innerHTML = d.live
     .map((r) => {
       const len = r.start ? dur(Math.round(now - r.start)) : "loading";
-      const sub = [`Started by ${r.host || "?"}`, r.headless && r.peakRam && `headless peak ${bytes(r.peakRam)}`].filter(Boolean).join(" · ");
+      const sub = [`Started by ${r.host || "?"}`, r.headless && r.peakRam && `headless peak ${bytes(r.peakRam)}`]
+        .filter(Boolean)
+        .join(" · ");
       return `<div class="raid-row live"><div class="raid-top"><b>${esc(mapName(r.map))}</b>
         <span class="mod-tag">${r.side === 1 ? "Scav" : "PMC"}</span>${r.headless ? '<span class="tag hl">Headless</span>' : ""}
         ${r.hlCrashed ? '<span class="mod-tag bad">Headless crashed</span>' : ""}<div class="spacer"></div><span class="muted small">${len}</span></div>
@@ -2261,9 +2287,7 @@ async function loadHistory() {
   state.histLive = live && all[0] && !all[0].end ? all[0].start : null;
   const older = Math.min(all.length, 60) - HIST_SHOWN;
   const toggle =
-    older <= 0
-      ? ""
-      : `<button class="ghost sm hist-more" id="histMore">${state.histAll ? "Show fewer" : `Show ${older} older`}</button>`;
+    older <= 0 ? "" : `<button class="ghost sm hist-more" id="histMore">${state.histAll ? "Show fewer" : `Show ${older} older`}</button>`;
   $("sessionList").innerHTML = sessions.length
     ? sessions
         .map((s, i) => {
@@ -2297,7 +2321,7 @@ $("histClear").onclick = async () => {
   const ok = await confirmBox(
     "Clear session history?",
     "Past sessions and their crash/restart tags are removed. A running session is kept.",
-    "Clear"
+    "Clear",
   );
   if (!ok) return;
   await call("history_clear", { keepFrom: state.histLive ?? null });

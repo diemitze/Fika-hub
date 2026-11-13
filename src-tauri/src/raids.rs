@@ -76,19 +76,32 @@ fn watch_players(core: &Core, t: &mut Tracker, lobby: Option<&fika::Lobby>) {
         return;
     };
     let me = my_nick(core, t);
-    let now: BTreeSet<String> = l.players.iter().map(|p| p.nickname.clone()).filter(|n| !n.is_empty() && *n != me).collect();
+    let now: BTreeSet<String> = l
+        .players
+        .iter()
+        .map(|p| p.nickname.clone())
+        .filter(|n| !n.is_empty() && *n != me)
+        .collect();
     // the first list after the server comes up is a baseline, not a wave of joins
     if let Some(before) = &t.online {
         let joined: Vec<&String> = now.difference(before).collect();
         let left: Vec<&String> = before.difference(&now).collect();
         let open = crate::notify::Open::Dashboard;
         if !joined.is_empty() {
-            let title = if joined.len() == 1 { format!("{} connected", joined[0]) } else { format!("{} players connected", joined.len()) };
+            let title = if joined.len() == 1 {
+                format!("{} connected", joined[0])
+            } else {
+                format!("{} players connected", joined.len())
+            };
             let body = format!("{}\n{} online now", names(&joined), now.len());
             crate::notify::alert(core, crate::notify::Kind::Players, &title, &body, open);
         }
         if !left.is_empty() {
-            let title = if left.len() == 1 { format!("{} disconnected", left[0]) } else { format!("{} players disconnected", left.len()) };
+            let title = if left.len() == 1 {
+                format!("{} disconnected", left[0])
+            } else {
+                format!("{} players disconnected", left.len())
+            };
             let body = format!("{}\n{} online now", names(&left), now.len());
             crate::notify::alert(core, crate::notify::Kind::Players, &title, &body, open);
         }
@@ -120,7 +133,10 @@ fn tick(core: &Core) {
     let st = crate::procs::status(core);
     let ts = now();
 
-    let current: Vec<&fika::Raid> = lobby.as_ref().map(|l| l.raids.iter().filter(|r| r.status != 2).collect()).unwrap_or_default();
+    let current: Vec<&fika::Raid> = lobby
+        .as_ref()
+        .map(|l| l.raids.iter().filter(|r| r.status != 2).collect())
+        .unwrap_or_default();
     // snapshot a player's profile once when they enter a raid, forgotten when they leave it
     let in_raid: BTreeSet<String> = lobby
         .as_ref()
@@ -128,7 +144,11 @@ fn tick(core: &Core) {
         .unwrap_or_default();
     let newcomer = in_raid.iter().any(|n| !t.snapped.contains(n));
     t.snapped = in_raid;
-    let profs = if newcomer { host.as_deref().map(profiles::list).unwrap_or_default() } else { vec![] };
+    let profs = if newcomer {
+        host.as_deref().map(profiles::list).unwrap_or_default()
+    } else {
+        vec![]
+    };
 
     for r in &current {
         let key = (r.host.clone(), r.location.to_lowercase());
@@ -220,7 +240,12 @@ fn tick(core: &Core) {
         if !all_saved && ts.saturating_sub(e.end) < SETTLE_SECS {
             return true;
         }
-        let profs: Vec<profiles::Profile> = e.raid.before.keys().filter_map(|id| file(id).and_then(|p| profiles::read(&p))).collect();
+        let profs: Vec<profiles::Profile> = e
+            .raid
+            .before
+            .keys()
+            .filter_map(|id| file(id).and_then(|p| profiles::read(&p)))
+            .collect();
         write(core, e, &profs, &me);
         false
     });
@@ -297,7 +322,11 @@ fn write(core: &Core, e: &Ended, profs: &[profiles::Profile], me: &str) {
                 if xp > 0 {
                     bits.push(format!("{xp} XP"));
                 }
-                if bits.is_empty() { "Your raid is over.".into() } else { bits.join(" · ") }
+                if bits.is_empty() {
+                    "Your raid is over.".into()
+                } else {
+                    bits.join(" · ")
+                }
             }
             None => {
                 let n = r.players.len();

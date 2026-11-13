@@ -120,7 +120,9 @@ pub fn snap_back(w: &tauri::Window) {
             cx >= p.x && cx < p.x + s.width as i32 && cy >= p.y && cy < p.y + s.height as i32
         };
         let monitors = w.available_monitors().unwrap_or_default();
-        let Some(home) = monitors.iter().find(|m| contains(m)) else { return };
+        let Some(home) = monitors.iter().find(|m| contains(m)) else {
+            return;
+        };
         let Ok(Some(now)) = w.current_monitor() else { return };
         if now.position() == home.position() {
             return;

@@ -322,10 +322,20 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         if !alive(&c, my) || !c.stack.server_ready.load(SeqCst) {
             return;
         }
-        note(&c, SERVER, &format!("SPT server exited on its own. {}.", crate::notify::exit_reason(code)));
+        note(
+            &c,
+            SERVER,
+            &format!("SPT server exited on its own. {}.", crate::notify::exit_reason(code)),
+        );
         record("server_crash", json!({ "code": code }));
         if !c.settings.lock().unwrap().auto_restart_server {
-            alert(&c, "Server crashed", crash_text(&c, SERVER, code, "Auto-restart is off."), RED, SERVER);
+            alert(
+                &c,
+                "Server crashed",
+                crash_text(&c, SERVER, code, "Auto-restart is off."),
+                RED,
+                SERVER,
+            );
             return;
         }
         // a server that dies on boot every time would otherwise loop forever
@@ -347,7 +357,13 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
             return;
         }
         note(&c, SERVER, "Restarting server in 5s.");
-        alert(&c, "Server crashed", crash_text(&c, SERVER, code, "Restarting it now."), RED, SERVER);
+        alert(
+            &c,
+            "Server crashed",
+            crash_text(&c, SERVER, code, "Restarting it now."),
+            RED,
+            SERVER,
+        );
         std::thread::sleep(Duration::from_secs(5));
         if alive(&c, my) {
             let _ = restart_server(&c, "crash");
@@ -430,7 +446,13 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             }
             if recovering && started.elapsed() >= Duration::from_secs(45) {
                 recovering = false;
-                alert(&core, "Headless is back up", "It restarted after the crash.".into(), GREEN, HEADLESS);
+                alert(
+                    &core,
+                    "Headless is back up",
+                    "It restarted after the crash.".into(),
+                    GREEN,
+                    HEADLESS,
+                );
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -456,7 +478,13 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
         }
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
-            alert(&core, "Headless crashed", crash_text(&core, HEADLESS, code, "Auto-restart is off."), AMBER, HEADLESS);
+            alert(
+                &core,
+                "Headless crashed",
+                crash_text(&core, HEADLESS, code, "Auto-restart is off."),
+                AMBER,
+                HEADLESS,
+            );
             return;
         }
         // a headless that dies on start (bad profile, missing dll) would otherwise respawn forever
@@ -474,7 +502,13 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
                 );
                 return;
             }
-            alert(&core, "Headless crashed", crash_text(&core, HEADLESS, code, "Restarting it now."), AMBER, HEADLESS);
+            alert(
+                &core,
+                "Headless crashed",
+                crash_text(&core, HEADLESS, code, "Restarting it now."),
+                AMBER,
+                HEADLESS,
+            );
             recovering = true;
         }
         note(
@@ -779,7 +813,13 @@ pub fn watchdog(core: &Arc<Core>) {
         } else {
             "Auto-restart is off."
         };
-        alert(core, "Server isn't responding", format!("It's running but hasn't answered for a minute. {then}"), AMBER, SERVER);
+        alert(
+            core,
+            "Server isn't responding",
+            format!("It's running but hasn't answered for a minute. {then}"),
+            AMBER,
+            SERVER,
+        );
     }
     if secs >= 180 && core.settings.lock().unwrap().auto_restart_server {
         *SINCE.lock().unwrap() = None;
