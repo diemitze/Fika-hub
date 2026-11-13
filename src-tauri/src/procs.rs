@@ -475,6 +475,9 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             forced = true;
         } else {
             record(if forced { "headless_restart" } else { "headless_crash" }, json!({ "code": code }));
+            if !forced {
+                LAST_HL_CRASH.store(crate::history::now(), SeqCst);
+            }
         }
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
@@ -787,6 +790,24 @@ fn wait_remote(core: &Core, my: u64, addr: &str) -> bool {
     false
 }
 
+static LAST_HL_CRASH: AtomicU64 = AtomicU64::new(0);
+
+/// Unix time of the last headless crash the supervisor saw, 0 if none.
+pub fn last_headless_crash() -> u64 {
+    LAST_HL_CRASH.load(SeqCst)
+}
+
+/// Any HTTP reply, even a 404, means the server is alive. Fika routes aren't used
+/// here, so a server without Fika isn't mistaken for a hung one.
+fn server_answers(core: &Core) -> bool {
+    let Some(host) = crate::host_dir(&core.settings.lock().unwrap()) else {
+        return true;
+    };
+    let port = install::server_port(&host);
+    let url = format!("https://127.0.0.1:{port}/");
+    tauri::async_runtime::block_on(async { core.http.get(url).send().await.is_ok() })
+}
+
 /// A server that keeps its port but stops answering never exits, so the exit
 /// watcher can't see it. Warns after a minute, restarts after three.
 pub fn watchdog(core: &Arc<Core>) {
@@ -796,7 +817,7 @@ pub fn watchdog(core: &Arc<Core>) {
         && core.stack.server_ready.load(SeqCst)
         && !core.stack.restarting.load(SeqCst)
         && child_alive(&core.stack.server);
-    if !ours || crate::schedule::lobby(core).is_some() {
+    if !ours || server_answers(core) {
         if WARNED.swap(false, SeqCst) && ours {
             note(core, SERVER, "Server is answering again.");
         }

@@ -9,6 +9,7 @@ use std::time::Duration;
 const KEEP: usize = 500;
 // the server writes profiles a few seconds after the raid closes
 const SETTLE_SECS: u64 = 90;
+const MISSES_TO_STOP: u32 = 3;
 
 #[derive(Clone)]
 struct Live {
@@ -20,8 +21,6 @@ struct Live {
     started: Option<u64>,
     players: BTreeSet<String>,
     peak_players: i64,
-    hl_pid: u32,
-    hl_crashed: bool,
     peak_ram: u64,
     cpu_sum: f64,
     cpu_n: u32,
@@ -39,7 +38,12 @@ struct Ended {
 struct Tracker {
     live: HashMap<(String, String), Live>,
     settling: Vec<Ended>,
-    snapped: BTreeSet<String>,
+    /// nickname -> profile as it was when they entered their raid
+    snaps: HashMap<String, profiles::Profile>,
+    /// in a raid but no profile on this server
+    unknown: BTreeSet<String>,
+    /// lobby polls in a row that got no answer
+    misses: u32,
     /// who was online last tick, None until the server first answers
     online: Option<BTreeSet<String>>,
     /// (profile id, nickname) of whoever is picked under Playing as
@@ -123,33 +127,60 @@ pub fn start(core: Arc<Core>) {
 fn tick(core: &Core) {
     let lobby = crate::schedule::lobby(core);
     let host = crate::host_dir(&core.settings.lock().unwrap());
-    // only read profiles when a raid needs them, they can be several MB each
-    let mut g = T.lock().unwrap();
-    let t = g.get_or_insert_with(Tracker::default);
-    watch_players(core, t, lobby.as_ref());
-    if lobby.is_none() && t.live.is_empty() && t.settling.is_empty() {
+    let in_raid: BTreeSet<String> = lobby
+        .as_ref()
+        .map(|l| l.players.iter().filter(|p| p.activity == 1).map(|p| p.nickname.clone()).collect())
+        .unwrap_or_default();
+
+    // the slow parts (process scan, parsing every profile) run without the lock, so the Raids page never waits on them
+    let (busy, need_list) = {
+        let mut g = T.lock().unwrap();
+        let t = g.get_or_insert_with(Tracker::default);
+        watch_players(core, t, lobby.as_ref());
+        let busy = lobby.is_some() || !t.live.is_empty() || !t.settling.is_empty();
+        (busy, in_raid.iter().any(|n| !t.snaps.contains_key(n) && !t.unknown.contains(n)))
+    };
+    if !busy {
         return;
     }
     let st = crate::procs::status(core);
+    let profs = if need_list {
+        host.as_deref().map(profiles::list).unwrap_or_default()
+    } else {
+        vec![]
+    };
     let ts = now();
+
+    let mut g = T.lock().unwrap();
+    let t = g.get_or_insert_with(Tracker::default);
+
+    // a profile is snapshotted once when its player enters a raid, before the raid can change it
+    for n in &in_raid {
+        if t.snaps.contains_key(n) || t.unknown.contains(n) || !need_list {
+            continue;
+        }
+        match profs.iter().find(|x| !x.headless && &x.nickname == n) {
+            Some(pr) => {
+                t.snaps.insert(n.clone(), pr.clone());
+            }
+            // a player whose profile isn't on this server, don't rescan for them every tick
+            None => {
+                t.unknown.insert(n.clone());
+            }
+        }
+    }
+    if lobby.is_some() {
+        t.snaps.retain(|n, _| in_raid.contains(n));
+        t.unknown.retain(|n| in_raid.contains(n));
+        t.misses = 0;
+    } else {
+        t.misses += 1;
+    }
 
     let current: Vec<&fika::Raid> = lobby
         .as_ref()
         .map(|l| l.raids.iter().filter(|r| r.status != 2).collect())
         .unwrap_or_default();
-    // snapshot a player's profile once when they enter a raid, forgotten when they leave it
-    let in_raid: BTreeSet<String> = lobby
-        .as_ref()
-        .map(|l| l.players.iter().filter(|p| p.activity == 1).map(|p| p.nickname.clone()).collect())
-        .unwrap_or_default();
-    let newcomer = in_raid.iter().any(|n| !t.snapped.contains(n));
-    t.snapped = in_raid;
-    let profs = if newcomer {
-        host.as_deref().map(profiles::list).unwrap_or_default()
-    } else {
-        vec![]
-    };
-
     for r in &current {
         let key = (r.host.clone(), r.location.to_lowercase());
         let live = t.live.entry(key).or_insert_with(|| Live {
@@ -161,8 +192,6 @@ fn tick(core: &Core) {
             started: None,
             players: BTreeSet::new(),
             peak_players: 0,
-            hl_pid: 0,
-            hl_crashed: false,
             peak_ram: 0,
             cpu_sum: 0.0,
             cpu_n: 0,
@@ -179,47 +208,43 @@ fn tick(core: &Core) {
                     continue;
                 }
                 live.players.insert(p.nickname.clone());
-                if let Some(pr) = profs.iter().find(|x| !x.headless && x.nickname == p.nickname) {
+                if let Some(pr) = t.snaps.get(&p.nickname) {
                     live.before.entry(pr.id.clone()).or_insert_with(|| pr.clone());
                 }
             }
         }
-        if live.headless {
-            if st.headless.running {
-                if live.hl_pid == 0 {
-                    live.hl_pid = st.headless.pid;
-                } else if live.hl_pid != st.headless.pid {
-                    live.hl_crashed = true;
-                }
-                live.peak_ram = live.peak_ram.max(st.headless.ram);
-                live.cpu_sum += st.headless.cpu as f64;
-                live.cpu_n += 1;
-            } else if live.hl_pid != 0 {
-                live.hl_crashed = true;
-            }
+        if live.headless && st.headless.running {
+            live.peak_ram = live.peak_ram.max(st.headless.ram);
+            live.cpu_sum += st.headless.cpu as f64;
+            live.cpu_n += 1;
         }
     }
 
-    let gone: Vec<(String, String)> = t
-        .live
-        .keys()
-        .filter(|k| !current.iter().any(|r| r.host == k.0 && r.location.eq_ignore_ascii_case(&k.1)))
-        .cloned()
-        .collect();
-    for k in gone {
-        let raid = t.live.remove(&k).unwrap();
-        // a lobby that never reached the raid is a cancelled queue, not worth a row
-        if raid.started.is_none() {
-            continue;
+    // one missed lobby poll (a busy server) mustn't split a raid in two, so only a real answer
+    // without the raid, or a server that has been silent for a few polls, ends it
+    let silent = lobby.is_none() && t.misses >= MISSES_TO_STOP;
+    if lobby.is_some() || silent {
+        let gone: Vec<(String, String)> = t
+            .live
+            .keys()
+            .filter(|k| !current.iter().any(|r| r.host == k.0 && r.location.eq_ignore_ascii_case(&k.1)))
+            .cloned()
+            .collect();
+        for k in gone {
+            let raid = t.live.remove(&k).unwrap();
+            // a lobby that never reached the raid is a cancelled queue, not worth a row
+            if raid.started.is_none() {
+                continue;
+            }
+            let why = if silent {
+                "server stopped"
+            } else if hl_crashed(&raid) {
+                "headless crashed"
+            } else {
+                "finished"
+            };
+            t.settling.push(Ended { raid, end: ts, why });
         }
-        let why = if lobby.is_none() {
-            "server stopped"
-        } else if raid.hl_crashed {
-            "headless crashed"
-        } else {
-            "finished"
-        };
-        t.settling.push(Ended { raid, end: ts, why });
     }
 
     if t.settling.is_empty() {
@@ -228,7 +253,8 @@ fn tick(core: &Core) {
     let me = my_nick(core, t);
     let dir = host.as_deref().and_then(crate::install::profiles_dir);
     let file = |id: &str| dir.as_ref().map(|d| d.join(format!("{id}.json")));
-    // a file mtime is cheap, parsing a multi-MB profile isn't, so parse only once it's saved
+    // SPT saves profiles every minute, and only a save after the raid closed holds its results.
+    // A file mtime is cheap, parsing a multi-MB profile isn't, so parse only once it's saved.
     let saved_after = |id: &str, end: u64| {
         file(id)
             .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
@@ -249,6 +275,11 @@ fn tick(core: &Core) {
         write(core, e, &profs, &me);
         false
     });
+}
+
+/// Fika's own raid-limit restart is a clean quit, so only a crash the supervisor saw counts.
+fn hl_crashed(r: &Live) -> bool {
+    r.headless && crate::procs::last_headless_crash() >= r.seen
 }
 
 fn write(core: &Core, e: &Ended, profs: &[profiles::Profile], me: &str) {
@@ -300,6 +331,8 @@ fn write(core: &Core, e: &Ended, profs: &[profiles::Profile], me: &str) {
         let _ = writeln!(f, "{rec}");
     }
     crate::history::record("raid_end", json!({ "map": r.location, "why": e.why }));
+    // a Hub left open for weeks never restarts, so trim here too
+    trim();
 
     // crashes already got their own alert
     if e.why == "finished" {
@@ -363,7 +396,7 @@ pub fn live() -> Vec<Value> {
                 "players": r.players.iter().collect::<Vec<_>>(),
                 "peakPlayers": r.peak_players,
                 "peakRam": r.peak_ram,
-                "hlCrashed": r.hl_crashed,
+                "hlCrashed": hl_crashed(r),
             })
         })
         .collect()
