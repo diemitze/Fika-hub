@@ -205,14 +205,22 @@ fn tick(core: &Core) {
     if t.settling.is_empty() {
         return;
     }
-    let profs = host.as_deref().map(profiles::list).unwrap_or_default();
     let me = my_nick(core, t);
+    let dir = host.as_deref().and_then(crate::install::profiles_dir);
+    let file = |id: &str| dir.as_ref().map(|d| d.join(format!("{id}.json")));
+    // a file mtime is cheap, parsing a multi-MB profile isn't, so parse only once it's saved
+    let saved_after = |id: &str, end: u64| {
+        file(id)
+            .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .is_some_and(|d| d.as_secs() >= end)
+    };
     t.settling.retain(|e| {
-        let saved_after = |id: &str| profs.iter().any(|p| p.id == id && ts.saturating_sub(p.saved_ago) >= e.end);
-        let all_saved = e.raid.before.keys().all(|id| saved_after(id));
+        let all_saved = e.raid.before.keys().all(|id| saved_after(id, e.end));
         if !all_saved && ts.saturating_sub(e.end) < SETTLE_SECS {
             return true;
         }
+        let profs: Vec<profiles::Profile> = e.raid.before.keys().filter_map(|id| file(id).and_then(|p| profiles::read(&p))).collect();
         write(core, e, &profs, &me);
         false
     });

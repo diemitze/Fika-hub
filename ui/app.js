@@ -1352,6 +1352,8 @@ function cfgItem(e, withGroup) {
   return `<div class="cfg-item ${sel}" data-rel="${esc(e.rel)}" title="${esc(e.rel)}"><span>${text}</span>${isPinned(e.rel) ? '<b class="pin" title="Pinned">★</b>' : ""}<i>${esc(ext)}</i></div>`;
 }
 
+const CFG_SHOWN = 400;
+
 function renderCfgList() {
   const q = $("cfgSearch").value.trim().toLowerCase();
   const list = state.cfg.entries.filter((e) => !q || (e.group + " " + e.rel).toLowerCase().includes(q));
@@ -1368,8 +1370,13 @@ function renderCfgList() {
         .filter((e) => !isPinned(e.rel))
         .slice(0, 5);
 
+  // "every text file" on a big mod folder is thousands of rows (PBT alone ships ~5000)
   const groups = {};
-  for (const e of list) (groups[e.group] ||= []).push(e);
+  for (const e of list.slice(0, CFG_SHOWN)) (groups[e.group] ||= []).push(e);
+  const more =
+    list.length > CFG_SHOWN
+      ? `<div class="empty">Showing ${CFG_SHOWN} of ${list.length} files. Search to find the rest.</div>`
+      : "";
   const head = [
     ["Pinned", pinned],
     ["Recent", recent],
@@ -1383,7 +1390,8 @@ function renderCfgList() {
         .map(
           ([g, items]) => `<div class="cfg-group"><b title="${esc(g)}">${esc(g)}</b>${items.map((e) => cfgItem(e, false)).join("")}</div>`,
         )
-        .join("")
+        .join("") +
+      more
     : `<div class="empty">${state.cfg.entries.length ? "No match." : "No config files found."}</div>`;
   $$(".cfg-item").forEach((el) => (el.onclick = () => openConfig(el.dataset.rel)));
 }
@@ -2086,11 +2094,18 @@ function paintHeadlessPower(s) {
 const RAID_END = { finished: ["ok", "Finished"], "headless crashed": ["bad", "Headless crashed"], "server stopped": ["warn", "Server stopped"] };
 
 async function loadRaids() {
-  const r = await invoke("raids_list", { limit: 500 }).catch(() => null);
+  const r = await invoke("raids_list", { limit: RAIDS_KEPT }).catch(() => null);
   if (!r) return;
+  // redrawing every poll would close the map dropdown, so only on news (or for the live timers)
+  const key = JSON.stringify(r) + Math.floor(Date.now() / 30000) + myNick();
+  if (key === state.raidKey) return;
+  state.raidKey = key;
   state.raidData = r;
   renderRaids();
 }
+// matches KEEP in raids.rs, older ones are trimmed from disk
+const RAIDS_KEPT = 500;
+const RAIDS_PAGE = 50;
 
 function myNick() {
   return state.profiles.find((p) => p.id === state.profileId)?.nickname;
@@ -2116,7 +2131,8 @@ function renderRaids() {
   const maps = [...new Set(done.map((r) => r.map.toLowerCase()))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
   const sel = $("raidMap");
   const want = state.raidMap || "all";
-  sel.innerHTML = `<option value="all">All maps</option>` + maps.map((m) => `<option value="${esc(m)}">${esc(mapName(m))}</option>`).join("");
+  const opts = `<option value="all">All maps</option>` + maps.map((m) => `<option value="${esc(m)}">${esc(mapName(m))}</option>`).join("");
+  if (sel.innerHTML !== opts) sel.innerHTML = opts;
   sel.value = maps.includes(want) ? want : "all";
   sel.disabled = maps.length < 2;
   const shown = sel.value === "all" ? done : done.filter((r) => r.map.toLowerCase() === sel.value);
@@ -2130,7 +2146,7 @@ function renderRaids() {
   const bad = shown.filter((r) => r.why !== "finished").length;
   const peak = Math.max(0, ...shown.map((r) => r.peakRam || 0));
   const tiles = [
-    ["Raids", shown.length, shown.length ? "avg " + dur(Math.round(time / shown.length)) : "none yet"],
+    ["Raids", shown.length, shown.length ? "avg " + dur(Math.round(time / shown.length)) + (d.done.length >= RAIDS_KEPT ? ` · last ${RAIDS_KEPT}` : "") : "none yet"],
     ["Time in raid", time ? dur(time) : "-", plural(new Set(shown.map((r) => r.map.toLowerCase())).size, "map")],
     [me ? `${me} survived` : "Survival", surv + died ? Math.round((surv / (surv + died)) * 100) + "%" : "-", `${surv} out, ${died} dead`],
     ["Kills", mine.reduce((s, p) => s + (p.kills || 0), 0), human(mine.reduce((s, p) => s + (p.xp || 0), 0)) + " XP earned"],
@@ -2158,7 +2174,7 @@ function renderRaids() {
   $("raidPastCount").textContent = shown.length;
   $("raidPast").innerHTML = shown.length
     ? shown
-        .slice(0, 150)
+        .slice(0, state.raidAll ? RAIDS_KEPT : RAIDS_PAGE)
         .map((r) => {
           const [cls, label] = RAID_END[r.why] || ["", r.why];
           const sub = [
@@ -2174,9 +2190,19 @@ function renderRaids() {
         <span class="muted small">${when(r.start)} · ${dur(Math.max(0, r.end - r.start))}</span></div>
         <div class="raid-sub">${esc(sub)}</div>${r.players.length ? `<div class="raid-players">${raidPlayersHtml(r.players)}</div>` : ""}</div>`;
         })
-        .join("")
+        .join("") + raidMoreHtml(shown.length)
     : `<div class="empty">${done.length ? "No raids on this map yet." : "No raids recorded yet. Raids on a server started from Fika Hub show up here once they end."}</div>`;
 }
+
+function raidMoreHtml(total) {
+  if (total <= RAIDS_PAGE) return "";
+  return `<button class="ghost sm hist-more" id="raidMore">${state.raidAll ? "Show fewer" : `Show ${total - RAIDS_PAGE} older`}</button>`;
+}
+$("raidPast").addEventListener("click", (e) => {
+  if (e.target.id !== "raidMore") return;
+  state.raidAll = !state.raidAll;
+  renderRaids();
+});
 
 $("raidMap").onchange = () => {
   state.raidMap = $("raidMap").value;
