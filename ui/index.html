@@ -662,15 +662,20 @@
 
             <div class="card set-card">
               <h3>Desktop notifications</h3>
-              <p class="muted small">Only shown while Fika Hub isn't the window in front.</p>
+              <p class="muted small">Only shown while Fika Hub isn't the window in front. Click one to jump to the right page.</p>
               <label class="set-toggle"
-                ><div><b>Crashes</b><small>The headless or server goes down on its own.</small></div>
+                ><div><b>Crashes</b><small>The server, headless or your game goes down or stops answering, with the reason and last error.</small></div>
                 <span class="toggle"><input type="checkbox" data-set="notifyCrash" /><span></span></span
               ></label>
               <label class="set-toggle"
                 ><div><b>Players</b><small>Someone connects to or leaves your server.</small></div>
                 <span class="toggle"><input type="checkbox" data-set="notifyPlayers" /><span></span></span
               ></label>
+              <label class="set-toggle"
+                ><div><b>Server ready and raid results</b><small>A slow boot finishes, or a raid ends with how it went for you.</small></div>
+                <span class="toggle"><input type="checkbox" data-set="notifyReady" /><span></span></span
+              ></label>
+              <button class="ghost sm" id="notifyTest">Send a test</button>
             </div>
 
             <div class="card set-card">

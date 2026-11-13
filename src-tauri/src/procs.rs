@@ -1,6 +1,7 @@
 use crate::history::record;
 use crate::install::{self, norm};
 use crate::logs::{GAME, HEADLESS, SERVER};
+use crate::notify::{Kind, Open};
 use crate::schedule::{AMBER, GREEN, RED};
 use crate::Core;
 use serde::Serialize;
@@ -113,12 +114,19 @@ fn tie_to_hub(child: &Child) {
     }
 }
 
-fn alert(core: &Core, title: &str, text: String, color: u32) {
+/// Crash and recovery news, to Discord and the desktop.
+fn alert(core: &Core, title: &str, text: String, color: u32, stream: usize) {
     crate::schedule::discord_alert(core, title, &text, color);
+    crate::notify::alert(core, Kind::Crash, title, &text, Open::Log(stream));
 }
 
-fn exit_txt(code: Option<i32>) -> String {
-    code.map(|c| format!("Exit code {c}")).unwrap_or_else(|| "It exited".into())
+/// Why it died in words, plus the last error it logged.
+fn crash_text(core: &Core, stream: usize, code: Option<i32>, then: &str) -> String {
+    let mut t = format!("{}. {then}", crate::notify::exit_reason(code));
+    if let Some(e) = core.logs.last_error(stream) {
+        t += &format!("\nLast error: {e}");
+    }
+    t
 }
 
 fn child_alive(slot: &Mutex<Option<Child>>) -> bool {
@@ -230,7 +238,11 @@ fn wait_port(core: &Core, my: u64, port: u16, watch_server: bool) -> bool {
         if watch_server && !child_alive(&core.stack.server) && !core.stack.restarting.load(SeqCst) {
             core.stack.boot_start.lock().unwrap().take();
             note(core, SERVER, "SPT server exited before it was ready. Check the output above.");
-            alert(core, "Server failed to start", "SPT exited before it opened its port.".into(), RED);
+            let mut text = "SPT exited before it opened its port.".to_string();
+            if let Some(e) = core.logs.last_error(SERVER) {
+                text += &format!("\nLast error: {e}");
+            }
+            alert(core, "Server failed to start", text, RED, SERVER);
             return false;
         }
         std::thread::sleep(Duration::from_millis(500));
@@ -243,6 +255,7 @@ fn wait_port(core: &Core, my: u64, port: u16, watch_server: bool) -> bool {
             "Server failed to start",
             "It didn't open its port within 10 minutes.".into(),
             RED,
+            SERVER,
         );
     }
     false
@@ -309,11 +322,10 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
         if !alive(&c, my) || !c.stack.server_ready.load(SeqCst) {
             return;
         }
-        let code_txt = code.map(|x| x.to_string()).unwrap_or_else(|| "?".into());
-        note(&c, SERVER, &format!("SPT server exited on its own (exit code {code_txt})."));
+        note(&c, SERVER, &format!("SPT server exited on its own. {}.", crate::notify::exit_reason(code)));
         record("server_crash", json!({ "code": code }));
         if !c.settings.lock().unwrap().auto_restart_server {
-            alert(&c, "Server crashed", format!("Exit code {code_txt}. Auto-restart is off."), RED);
+            alert(&c, "Server crashed", crash_text(&c, SERVER, code, "Auto-restart is off."), RED, SERVER);
             return;
         }
         // a server that dies on boot every time would otherwise loop forever
@@ -328,13 +340,14 @@ fn spawn_server(core: &Arc<Core>, host: &Path) -> Result<(), String> {
             alert(
                 &c,
                 "Server keeps crashing",
-                "Crashed 3 times in 10 minutes, so it stays down.".into(),
+                crash_text(&c, SERVER, code, "Crashed 3 times in 10 minutes, so it stays down."),
                 RED,
+                SERVER,
             );
             return;
         }
         note(&c, SERVER, "Restarting server in 5s.");
-        alert(&c, "Server crashed", format!("Exit code {code_txt}. Restarting it now."), RED);
+        alert(&c, "Server crashed", crash_text(&c, SERVER, code, "Restarting it now."), RED, SERVER);
         std::thread::sleep(Duration::from_secs(5));
         if alive(&c, my) {
             let _ = restart_server(&c, "crash");
@@ -381,6 +394,8 @@ fn server_up(port: u16, addr: &str) -> bool {
 fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16, addr: &str) {
     let core = core.clone();
     let mut crashes: Vec<Instant> = vec![];
+    // set after a crash restart, cleared once the new headless has stayed up a while
+    let mut recovering = false;
     loop {
         if !alive(&core, my) {
             return;
@@ -413,6 +428,10 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
             if !alive(&core, my) {
                 return;
             }
+            if recovering && started.elapsed() >= Duration::from_secs(45) {
+                recovering = false;
+                alert(&core, "Headless is back up", "It restarted after the crash.".into(), GREEN, HEADLESS);
+            }
             std::thread::sleep(Duration::from_millis(500));
         }
         let code = exit_code(&core.stack.headless);
@@ -437,12 +456,7 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
         }
         if !forced && !core.settings.lock().unwrap().auto_restart_headless {
             note(&core, HEADLESS, "Headless exited. Auto-restart is off.");
-            alert(
-                &core,
-                "Headless crashed",
-                format!("{}. Auto-restart is off.", exit_txt(code)),
-                AMBER,
-            );
+            alert(&core, "Headless crashed", crash_text(&core, HEADLESS, code, "Auto-restart is off."), AMBER, HEADLESS);
             return;
         }
         // a headless that dies on start (bad profile, missing dll) would otherwise respawn forever
@@ -454,12 +468,14 @@ fn supervise_loop(core: &Arc<Core>, my: u64, host: &Path, token: &str, port: u16
                 alert(
                     &core,
                     "Headless keeps crashing",
-                    "Crashed 5 times in 10 minutes, so it stays down.".into(),
+                    crash_text(&core, HEADLESS, code, "Crashed 5 times in 10 minutes, so it stays down."),
                     RED,
+                    HEADLESS,
                 );
                 return;
             }
-            alert(&core, "Headless crashed", format!("{}. Restarting it now.", exit_txt(code)), AMBER);
+            alert(&core, "Headless crashed", crash_text(&core, HEADLESS, code, "Restarting it now."), AMBER, HEADLESS);
+            recovering = true;
         }
         note(
             &core,
@@ -586,6 +602,17 @@ pub fn start_game(core: &Arc<Core>, my: u64, player: &Path, profile: &str, addr:
             return;
         }
         record("game_exit", json!({ "code": code }));
+        // a quit from the menu is 0, anything else means EFT went down on its own
+        if code != Some(0) {
+            let why = crate::notify::exit_reason(code);
+            note(&c, GAME, &format!("Game crashed. {why}."));
+            record("game_crash", json!({ "code": code }));
+            let mut text = format!("{why}.");
+            if let Some(e) = c.logs.last_error(GAME) {
+                text += &format!("\nLast error: {e}");
+            }
+            crate::notify::alert(&c, Kind::Crash, "Your game crashed", &text, Open::Log(GAME));
+        }
         let host_mode = c.stack.mode.lock().unwrap().as_str() == "host";
         if c.settings.lock().unwrap().stop_with_game && !host_mode {
             note(&c, GAME, "Game closed, shutting the stack down.");
@@ -640,11 +667,23 @@ pub fn launch(core: Arc<Core>, plan: LaunchPlan) -> Result<(), String> {
                     return fail(&e);
                 }
                 set_stage(&core, "Waiting for server", 35);
+                let boot = Instant::now();
                 if !wait_port(&core, my, plan.port, true) {
                     if alive(&core, my) {
                         stop_all(&core, "server didn't come up");
                     }
                     return;
+                }
+                // short boots are watched, long ones are when people tab away
+                let secs = boot.elapsed().as_secs();
+                if secs >= 20 {
+                    crate::notify::alert(
+                        &core,
+                        Kind::Info,
+                        "Server is ready",
+                        &format!("Booted in {}m {:02}s.", secs / 60, secs % 60),
+                        Open::Dashboard,
+                    );
                 }
             }
             set_stage(&core, "Starting headless", 65);
@@ -714,6 +753,43 @@ fn wait_remote(core: &Core, my: u64, addr: &str) -> bool {
     false
 }
 
+/// A server that keeps its port but stops answering never exits, so the exit
+/// watcher can't see it. Warns after a minute, restarts after three.
+pub fn watchdog(core: &Arc<Core>) {
+    static SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    let ours = core.stack.active.load(SeqCst)
+        && core.stack.server_ready.load(SeqCst)
+        && !core.stack.restarting.load(SeqCst)
+        && child_alive(&core.stack.server);
+    if !ours || crate::schedule::lobby(core).is_some() {
+        if WARNED.swap(false, SeqCst) && ours {
+            note(core, SERVER, "Server is answering again.");
+        }
+        *SINCE.lock().unwrap() = None;
+        return;
+    }
+    let since = *SINCE.lock().unwrap().get_or_insert_with(Instant::now);
+    let secs = since.elapsed().as_secs();
+    if secs >= 60 && !WARNED.swap(true, SeqCst) {
+        note(core, SERVER, "Server has stopped answering requests.");
+        record("server_hang", json!({}));
+        let then = if core.settings.lock().unwrap().auto_restart_server {
+            "Restarting it if it's still stuck in 2 minutes."
+        } else {
+            "Auto-restart is off."
+        };
+        alert(core, "Server isn't responding", format!("It's running but hasn't answered for a minute. {then}"), AMBER, SERVER);
+    }
+    if secs >= 180 && core.settings.lock().unwrap().auto_restart_server {
+        *SINCE.lock().unwrap() = None;
+        WARNED.store(false, SeqCst);
+        note(core, SERVER, "Server stuck for 3 minutes, restarting it.");
+        alert(core, "Server was stuck", "Restarting it now.".into(), RED, SERVER);
+        let _ = restart_server(core, "hang");
+    }
+}
+
 pub fn current_gen(core: &Core) -> u64 {
     core.stack.gen.load(SeqCst)
 }
@@ -764,12 +840,12 @@ fn restart_server_inner(core: &Arc<Core>, by: &str) -> Result<(), String> {
     }
 
     let c = core.clone();
-    let after_crash = by == "crash";
+    let after_crash = by == "crash" || by == "hang";
     std::thread::spawn(move || {
         if wait_port(&c, my, port, true) {
             set_stage(&c, "Running", 100);
             if after_crash {
-                alert(&c, "Server is back up", "Restarted after the crash.".into(), GREEN);
+                alert(&c, "Server is back up", "Restarted after the crash.".into(), GREEN, SERVER);
             }
         } else if alive(&c, my) {
             stop_all(&c, "server didn't come back after restart");

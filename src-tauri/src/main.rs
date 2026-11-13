@@ -550,8 +550,8 @@ async fn discord_test(core: Ctx<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn notify(title: String, body: String) {
-    notify::show(&title, &body);
+fn notify_test() {
+    notify::test();
 }
 
 #[tauri::command(async)]
@@ -761,7 +761,7 @@ fn main() {
             restart_server,
             connection_info,
             check_reach,
-            notify,
+            notify_test,
             stop_headless,
             start_headless,
             history,
@@ -801,6 +801,7 @@ fn main() {
             ui_state_set
         ])
         .setup(|app| {
+            notify::init(app.handle().clone());
             if let Some(w) = app.get_webview_window("main") {
                 // hidden in the config so the restored size doesn't visibly jump
                 ui_state::restore(&w);

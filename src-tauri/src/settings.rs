@@ -23,6 +23,8 @@ pub struct Settings {
     pub headless_profile: String,
     pub notify_crash: bool,
     pub notify_players: bool,
+    /// server finished booting, raid summaries
+    pub notify_ready: bool,
     /// "root|rel" keys of config files
     pub pinned_configs: Vec<String>,
     pub recent_configs: Vec<String>,
@@ -58,6 +60,7 @@ impl Default for Settings {
             headless_profile: String::new(),
             notify_crash: true,
             notify_players: false,
+            notify_ready: true,
             pinned_configs: vec![],
             recent_configs: vec![],
             check_before_launch: true,

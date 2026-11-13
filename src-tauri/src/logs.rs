@@ -101,6 +101,31 @@ impl Logs {
         s.lines.iter().map(|l| l.1.as_str()).collect::<Vec<_>>().join("\n")
     }
 
+    /// The newest error-looking line in the current run, for crash alerts.
+    pub fn last_error(&self, idx: usize) -> Option<String> {
+        let s = self.streams[idx].lock().unwrap();
+        s.lines
+            .iter()
+            .rev()
+            .take(400)
+            .take_while(|l| !l.1.starts_with(RUN_MARK))
+            .map(|l| l.1.as_str())
+            .find(|l| {
+                let low = l.to_ascii_lowercase();
+                !l.starts_with("[Fika Hub]")
+                    && (low.contains("exception") || low.contains("[error") || low.contains("[fatal") || low.contains("[critical"))
+            })
+            .map(|l| {
+                // drop the timestamp and level brackets, keep the message
+                let msg = l.rsplit("] ").next().unwrap_or(l).trim();
+                if msg.chars().count() > 110 {
+                    msg.chars().take(107).collect::<String>() + "..."
+                } else {
+                    msg.to_string()
+                }
+            })
+    }
+
     pub fn mark_run(&self, idx: usize, why: &str) {
         self.push_line(idx, format!("{RUN_MARK}{why}"));
     }

@@ -1,4 +1,4 @@
-use crate::{fika, history::now, profiles, Core};
+use crate::{fika, history::now, profiles, schedule::map_name, Core};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
@@ -40,9 +40,61 @@ struct Tracker {
     live: HashMap<(String, String), Live>,
     settling: Vec<Ended>,
     snapped: BTreeSet<String>,
+    /// who was online last tick, None until the server first answers
+    online: Option<BTreeSet<String>>,
+    /// (profile id, nickname) of whoever is picked under Playing as
+    me: (String, String),
 }
 
 static T: Mutex<Option<Tracker>> = Mutex::new(None);
+
+/// The picked profile's nickname, re-read only when the pick changes.
+fn my_nick(core: &Core, t: &mut Tracker) -> String {
+    let s = core.settings.lock().unwrap().clone();
+    let id = s.last_profile.clone().unwrap_or_default();
+    if t.me.0 != id {
+        let nick = crate::host_dir(&s)
+            .and_then(|h| crate::install::profiles_dir(&h))
+            .and_then(|d| profiles::read(&d.join(format!("{id}.json"))))
+            .map(|p| p.nickname)
+            .unwrap_or_default();
+        t.me = (id, nick);
+    }
+    t.me.1.clone()
+}
+
+fn names(list: &[&String]) -> String {
+    match list {
+        [one] => one.to_string(),
+        _ => list.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+    }
+}
+
+fn watch_players(core: &Core, t: &mut Tracker, lobby: Option<&fika::Lobby>) {
+    let Some(l) = lobby else {
+        t.online = None;
+        return;
+    };
+    let me = my_nick(core, t);
+    let now: BTreeSet<String> = l.players.iter().map(|p| p.nickname.clone()).filter(|n| !n.is_empty() && *n != me).collect();
+    // the first list after the server comes up is a baseline, not a wave of joins
+    if let Some(before) = &t.online {
+        let joined: Vec<&String> = now.difference(before).collect();
+        let left: Vec<&String> = before.difference(&now).collect();
+        let open = crate::notify::Open::Dashboard;
+        if !joined.is_empty() {
+            let title = if joined.len() == 1 { format!("{} connected", joined[0]) } else { format!("{} players connected", joined.len()) };
+            let body = format!("{}\n{} online now", names(&joined), now.len());
+            crate::notify::alert(core, crate::notify::Kind::Players, &title, &body, open);
+        }
+        if !left.is_empty() {
+            let title = if left.len() == 1 { format!("{} disconnected", left[0]) } else { format!("{} players disconnected", left.len()) };
+            let body = format!("{}\n{} online now", names(&left), now.len());
+            crate::notify::alert(core, crate::notify::Kind::Players, &title, &body, open);
+        }
+    }
+    t.online = Some(now);
+}
 
 fn path() -> PathBuf {
     crate::settings::data_dir().join("raids.jsonl")
@@ -61,6 +113,7 @@ fn tick(core: &Core) {
     // only read profiles when a raid needs them, they can be several MB each
     let mut g = T.lock().unwrap();
     let t = g.get_or_insert_with(Tracker::default);
+    watch_players(core, t, lobby.as_ref());
     if lobby.is_none() && t.live.is_empty() && t.settling.is_empty() {
         return;
     }
@@ -153,18 +206,19 @@ fn tick(core: &Core) {
         return;
     }
     let profs = host.as_deref().map(profiles::list).unwrap_or_default();
+    let me = my_nick(core, t);
     t.settling.retain(|e| {
         let saved_after = |id: &str| profs.iter().any(|p| p.id == id && ts.saturating_sub(p.saved_ago) >= e.end);
         let all_saved = e.raid.before.keys().all(|id| saved_after(id));
         if !all_saved && ts.saturating_sub(e.end) < SETTLE_SECS {
             return true;
         }
-        write(e, &profs);
+        write(core, e, &profs, &me);
         false
     });
 }
 
-fn write(e: &Ended, profs: &[profiles::Profile]) {
+fn write(core: &Core, e: &Ended, profs: &[profiles::Profile], me: &str) {
     let r = &e.raid;
     let start = r.started.unwrap_or(r.seen);
     let players: Vec<Value> = r
@@ -213,6 +267,37 @@ fn write(e: &Ended, profs: &[profiles::Profile]) {
         let _ = writeln!(f, "{rec}");
     }
     crate::history::record("raid_end", json!({ "map": r.location, "why": e.why }));
+
+    // crashes already got their own alert
+    if e.why == "finished" {
+        let mins = e.end.saturating_sub(start) / 60;
+        let title = format!("{} finished · {mins} min", map_name(&r.location));
+        let mine = players.iter().find(|p| p["name"] == me);
+        let body = match mine {
+            Some(p) => {
+                let mut bits = vec![];
+                match p["outcome"].as_str() {
+                    Some("survived") => bits.push("You survived".to_string()),
+                    Some("died") => bits.push("You died".to_string()),
+                    _ => {}
+                }
+                let kills = p["kills"].as_i64().unwrap_or(0);
+                if kills > 0 {
+                    bits.push(format!("{kills} kill{}", if kills == 1 { "" } else { "s" }));
+                }
+                let xp = p["xp"].as_i64().unwrap_or(0);
+                if xp > 0 {
+                    bits.push(format!("{xp} XP"));
+                }
+                if bits.is_empty() { "Your raid is over.".into() } else { bits.join(" · ") }
+            }
+            None => {
+                let n = r.players.len();
+                format!("{n} player{} in it.", if n == 1 { "" } else { "s" })
+            }
+        };
+        crate::notify::alert(core, crate::notify::Kind::Info, &title, &body, crate::notify::Open::Raids);
+    }
 }
 
 pub fn read(limit: usize) -> Vec<Value> {

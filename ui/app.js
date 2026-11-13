@@ -662,7 +662,6 @@ $("btnRestartSrv").onclick = async () => {
     : "Anyone connected, your game included, will be disconnected";
   const body = `${who}. The headless goes down too and comes back once the server is up again, so raids it hosts will end.`;
   if (!(await confirmBox("Restart the server?", body, "Restart server"))) return;
-  state.expectSrvExit = true;
   await call("restart_server").catch(() => {});
 };
 $("btnStartGame").onclick = async () => {
@@ -679,13 +678,7 @@ async function pollStatus() {
   } catch {
     return;
   }
-  const prev = state.status;
   state.status = s;
-  // a stack we started lost its server without being told to
-  if (prev?.active && s.active && prev.server.owned && prev.server.running && !s.server.running && !state.expectSrvExit) {
-    alertUser("crash", "SPT server stopped", "The server started from Fika Hub is no longer running.");
-  }
-  if (s.server.running || !s.active) state.expectSrvExit = false;
 
   for (const [key, node] of [
     ["server", "nodeServer"],
@@ -818,7 +811,6 @@ async function pollLobby() {
 
 function renderLobby(l) {
   state.lobby = l;
-  watchPlayers(l);
   const raids = l?.raids || [];
   const players = l?.players || [];
   $("fikaSrvVer").textContent = l?.online ? "Fika server " + (l.version || "?") : "server offline";
@@ -856,38 +848,17 @@ function renderLobby(l) {
 
 // ============================ notifications ============================
 
-// only when the window isn't in front, otherwise the dashboard already says it
-function alertUser(kind, title, body) {
-  const on = kind === "crash" ? state.settings?.notifyCrash : state.settings?.notifyPlayers;
-  if (!on || document.hasFocus()) return;
-  invoke("notify", { title, body }).catch(() => {});
-}
-
-function watchLine(stream, text) {
-  if (stream !== 1 || !text.startsWith("[Fika Hub] Headless exited")) return;
-  const auto = text.includes("restarting");
-  if (auto) state.hlCrashed = true;
-  alertUser("crash", "Headless crashed", auto ? "Restarting it in 3 seconds." : "Auto-restart is off, so it stays down.");
-}
-
-function watchPlayers(l) {
-  if (!l?.online) {
-    state.seenPlayers = null;
-    return;
-  }
-  const me = state.profiles.find((p) => p.id === state.profileId)?.nickname;
-  const now = new Set((l.players || []).map((p) => p.nickname).filter((n) => n && n !== me));
-  // the first list after the server comes up is a baseline, not a wave of joins
-  if (state.seenPlayers) {
-    const joined = [...now].filter((n) => !state.seenPlayers.has(n));
-    const left = [...state.seenPlayers].filter((n) => !now.has(n));
-    if (joined.length)
-      alertUser("players", joined.length === 1 ? `${joined[0]} connected` : `${joined.length} players connected`, joined.join(", "));
-    if (left.length)
-      alertUser("players", left.length === 1 ? `${left[0]} disconnected` : `${left.length} players disconnected`, left.join(", "));
-  }
-  state.seenPlayers = now;
-}
+// toasts are sent by the backend; clicking one lands here with where to go
+T.event.listen("open-page", (e) => {
+  const [page, stream] = String(e.payload).split(":");
+  if (stream != null) setStream(+stream);
+  goto(page);
+  if (page === "console" && stream != null) toggleIssues(true);
+});
+$("notifyTest").onclick = () => {
+  call("notify_test").catch(() => {});
+  toast("Sent. If nothing shows, check Windows notification settings for Fika Hub.");
+};
 
 // ============================ console ============================
 
@@ -974,8 +945,6 @@ async function pollLogsOnce() {
       }
     }
     if (!c.lines.length) continue;
-    // the first fetch replays the backend buffer, so old crash lines must not alert again
-    const live = state.logSeq[i] > 0;
     state.logSeq[i] = c.lines[c.lines.length - 1][0];
     let newRun = false;
     const added = c.lines.map(([, text]) => {
@@ -991,7 +960,6 @@ async function pollLogsOnce() {
       if (l.lvl === "error") state.logErr[i]++;
       if (SERIOUS_RE.test(text)) state.logBad[i]++;
       if (i === 0) state.bootPhase = phaseOf(text) || state.bootPhase;
-      if (live) watchLine(i, text);
       return l;
     });
     state.logs[i].push(...added);
@@ -2111,10 +2079,6 @@ function paintHeadlessPower(s) {
   const b = $("btnHlPower");
   b.textContent = s.headless.owned ? "Stop" : "Start";
   b.disabled = !(s.headless.owned || s.canStartHeadless);
-  if (state.hlCrashed && s.headless.running) {
-    state.hlCrashed = false;
-    alertUser("crash", "Headless is back up", "It restarted after the crash.");
-  }
 }
 
 // ============================ raids ============================
@@ -2233,7 +2197,9 @@ const EVENT_TEXT = {
   headless_stop: "headless stopped",
   server_crash: "server crash",
   server_restart: "server restart",
+  server_hang: "server stuck",
   game_exit: "game closed",
+  game_crash: "game crash",
 };
 
 function when(t) {

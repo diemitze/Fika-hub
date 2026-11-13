@@ -72,6 +72,7 @@ pub fn start(core: Arc<Core>) {
     std::thread::spawn(move || loop {
         tick_restart(&core);
         tick_discord(&core);
+        crate::procs::watchdog(&core);
         std::thread::sleep(Duration::from_secs(10));
     });
 }
@@ -155,7 +156,7 @@ fn tick_restart(core: &Arc<Core>) {
 
 // ---------------- Discord ----------------
 // gotta love BSG and there map names
-fn map_name(id: &str) -> String {
+pub(crate) fn map_name(id: &str) -> String {
     match id.to_lowercase().as_str() {
         "bigmap" => "Customs",
         "factory4_day" => "Factory",
