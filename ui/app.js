@@ -2825,14 +2825,18 @@ $("mpRefresh").onclick = loadModPages;
 
 function xpInfo(p) {
   const span = p.xpNext - p.xpStart;
-  if (span <= 0) return { pct: 0, text: "" };
+  if (span <= 0) return { pct: 0, html: "" };
   const done = Math.min(span, Math.max(0, p.experience - p.xpStart));
-  return { pct: (done / span) * 100, text: `${human(done)} / ${human(span)} XP to level ${p.level + 1}` };
+  const pct = (done / span) * 100;
+  return {
+    pct,
+    html: `<span><b>${human(done)}</b> / ${human(span)} XP</span><span class="xp-next">${pct.toFixed(pct < 10 ? 1 : 0)}% to <b>Lv ${p.level + 1}</b></span>`,
+  };
 }
-function paintXp(bar, text, p) {
+function paintXp(bar, meta, p) {
   const x = xpInfo(p);
   bar.style.width = x.pct + "%";
-  text.textContent = x.text;
+  meta.innerHTML = x.html;
 }
 
 $("opMore").onclick = () => state.profileId && openStats(state.profileId);
@@ -2887,7 +2891,7 @@ function renderStats(d, live) {
     <div class="st-head">
       <div class="op-badge">${p.level}</div>
       <div class="op-name"><b>${esc(p.nickname)}</b><small>${esc(sub)}</small>
-        <div class="xp"><div class="xp-bar"><i style="width:${xp.pct}%"></i></div><small>${esc(xp.text)}</small></div>
+        <div class="xp"><div class="xp-bar"><i style="width:${xp.pct}%"></i></div><div class="xp-meta">${xp.html}</div></div>
       </div>
       <span class="side-tag ${(p.side || "").toLowerCase()}">${esc((p.side || "-").toUpperCase())}</span>
     </div>
