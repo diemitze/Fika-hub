@@ -220,7 +220,11 @@ pub fn detail(host: &Path, id: &str) -> Option<Detail> {
         .map(|(id, p)| Bar {
             label: nice_name(&id),
             value: p.min(5100.0),
-            text: format!("Lv {}", (p / 100.0).floor() as i64),
+            text: if p >= 5100.0 {
+                "Max".into()
+            } else {
+                format!("Lv {}", (p / 100.0).floor() as i64)
+            },
         })
         .collect();
 
