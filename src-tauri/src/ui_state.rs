@@ -52,7 +52,7 @@ pub fn set(ui: Value) {
     save();
 }
 
-// Tarkov shoves the window onto its own screen, so moves while it runs aren't the user's
+// Tarkov shoves the window onto its own screen while it runs
 static GAME_UP: AtomicBool = AtomicBool::new(false);
 
 pub fn set_game_up(up: bool) {
@@ -61,7 +61,12 @@ pub fn set_game_up(up: bool) {
 
 /// Called on move and resize. Keeps the last normal size while maximized so un-maximizing lands right.
 pub fn track(w: &tauri::Window) {
-    if GAME_UP.load(Relaxed) || w.is_minimized().unwrap_or(false) {
+    if w.is_minimized().unwrap_or(false) {
+        return;
+    }
+    // with the game up, only a drag the user made counts, and that needs focus. Tarkov's
+    // shoves happen while the window is in the background, so they never become "home".
+    if GAME_UP.load(Relaxed) && !w.is_focused().unwrap_or(false) {
         return;
     }
     let max = w.is_maximized().unwrap_or(false);

@@ -580,6 +580,7 @@ function renderOperator() {
   const sr = p.raids ? Math.round((p.survived / p.raids) * 100) : null;
   const kd = p.deaths ? (p.kills / p.deaths).toFixed(2) : p.kills ? String(p.kills) : "-";
   $("opLevel").textContent = p.level;
+  paintXp($("opXp"), $("opXpText"), p);
   $("opName").textContent = p.nickname;
   $("opSub").textContent = `${p.edition || "Unknown edition"}${p.prestige ? " · Prestige " + p.prestige : ""}`;
   $("opSide").textContent = (p.side || "-").toUpperCase();
@@ -839,7 +840,7 @@ function renderLobby(l) {
           const inRaid = p.activity === 1;
           const where = inRaid && p.location ? " · " + mapName(p.location) : "";
           const since = p.since ? " · " + dur(Math.max(0, Math.floor(Date.now() / 1000 - p.since))).split(" ")[0] : "";
-          return `<div class="player"><div class="who-avatar">${esc(initials(p.nickname))}</div>
+          return `<div class="player click" data-nick="${esc(p.nickname)}"><div class="who-avatar">${esc(initials(p.nickname))}</div>
           <div class="p-name"><b>${esc(p.nickname)}</b><small>Level ${p.level}</small></div>
           <span class="act ${inRaid ? "raid" : ""}">${ACTIVITY[p.activity] || "Unknown"}${esc(where)}${since}</span></div>`;
         })
@@ -2819,3 +2820,91 @@ function modHue(n) {
 }
 $("mpSearch").oninput = renderModPages;
 $("mpRefresh").onclick = loadModPages;
+
+// ============================ player stats ============================
+
+function xpInfo(p) {
+  const span = p.xpNext - p.xpStart;
+  if (span <= 0) return { pct: 0, text: "" };
+  const done = Math.min(span, Math.max(0, p.experience - p.xpStart));
+  return { pct: (done / span) * 100, text: `${human(done)} / ${human(span)} XP to level ${p.level + 1}` };
+}
+function paintXp(bar, text, p) {
+  const x = xpInfo(p);
+  bar.style.width = x.pct + "%";
+  text.textContent = x.text;
+}
+
+$("opMore").onclick = () => state.profileId && openStats(state.profileId);
+$("playerList").onclick = (e) => {
+  const row = e.target.closest(".player[data-nick]");
+  if (!row) return;
+  const nick = row.dataset.nick.toLowerCase();
+  const live = (state.lobby?.players || []).find((x) => x.nickname.toLowerCase() === nick);
+  const p = state.profiles.find((x) => x.nickname.toLowerCase() === nick);
+  openStats(p?.id, live, row.dataset.nick);
+};
+$("statsClose").onclick = () => ($("statsOv").hidden = true);
+$("statsOv").onclick = (e) => e.target === $("statsOv") && ($("statsOv").hidden = true);
+document.addEventListener("keydown", (e) => e.key === "Escape" && !$("statsOv").hidden && ($("statsOv").hidden = true));
+
+async function openStats(id, live, nick) {
+  $("statsOv").hidden = false;
+  $("statsBody").innerHTML = `<div class="empty">Loading</div>`;
+  let d = null;
+  if (id) d = await invoke("profile_stats", { id }).catch(() => null);
+  if (!d) {
+    // not on this host (or unreadable): all Fika told us is the presence line
+    $("statsBody").innerHTML = `<div class="st-head"><div class="op-badge">${live ? live.level : "?"}</div>
+      <div class="op-name"><b>${esc(nick || "Unknown")}</b><small>No profile file on this host, so only live info is available.</small></div></div>
+      ${live ? `<div class="st-live">${esc(liveText(live))}</div>` : ""}`;
+    return;
+  }
+  $("statsBody").innerHTML = renderStats(d, live);
+}
+
+function liveText(p) {
+  const where = p.activity === 1 && p.location ? " · " + mapName(p.location) : "";
+  return (ACTIVITY[p.activity] || "Online") + where;
+}
+
+function barList(title, bars, cls) {
+  if (!bars.length) return "";
+  const max = Math.max(...bars.map((b) => b.value), 1);
+  return `<div class="st-card"><h4>${title}</h4>${bars
+    .map((b) => `<div class="st-bar ${cls || ""}"><span>${esc(b.label)}</span><div><i style="width:${(b.value / max) * 100}%"></i></div><b>${esc(b.text)}</b></div>`)
+    .join("")}</div>`;
+}
+
+function renderStats(d, live) {
+  const p = d.profile;
+  const sr = p.raids ? Math.round((p.survived / p.raids) * 100) : null;
+  const kd = p.deaths ? (p.kills / p.deaths).toFixed(2) : String(p.kills);
+  const tile = (label, value, sub, cls) => `<div class="st-tile"><small>${label}</small><b class="${cls || ""}">${value}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
+  const xp = xpInfo(p);
+  const sub = [p.edition, p.side, d.survivorClass, p.prestige ? "Prestige " + p.prestige : ""].filter(Boolean).join(" · ");
+  return `
+    <div class="st-head">
+      <div class="op-badge">${p.level}</div>
+      <div class="op-name"><b>${esc(p.nickname)}</b><small>${esc(sub)}</small>
+        <div class="xp"><div class="xp-bar"><i style="width:${xp.pct}%"></i></div><small>${esc(xp.text)}</small></div>
+      </div>
+      <span class="side-tag ${(p.side || "").toLowerCase()}">${esc((p.side || "-").toUpperCase())}</span>
+    </div>
+    ${live ? `<div class="st-live">${esc(liveText(live))}</div>` : ""}
+    <div class="st-tiles">
+      ${tile("Raids", human(p.raids), `${p.survived} survived`)}
+      ${tile("Survival", sr === null ? "-" : sr + "%", `${d.killed} killed, ${d.otherExits} other`, "ok")}
+      ${tile("K/D", kd, `${human(p.kills)} kills, ${human(p.deaths)} deaths`, "acc")}
+      ${tile("Best streak", p.longestStreak, p.winStreak ? `now ${p.winStreak}` : "")}
+      ${tile("Avg life", d.avgLifeSecs ? dur(d.avgLifeSecs) : "-", "per raid")}
+      ${tile("In raid", p.lifetimeSecs ? dur(p.lifetimeSecs).split(" ").slice(0, 2).join(" ") : "-", d.registered ? "since " + new Date(d.registered * 1000).toLocaleDateString() : "")}
+    </div>
+    <div class="st-grid">
+      ${barList("Kills by weapon", d.weapons)}
+      ${barList("Kills by target", d.targets, "t")}
+      ${barList("Damage taken", d.damageTaken, "d")}
+      ${barList("Top skills", d.skills, "s")}
+      ${d.groups.map((g) => `<div class="st-card"><h4>${esc(g.title)}</h4>${g.rows.map((r) => `<div class="st-row"><span>${esc(r.label)}</span><b>${esc(r.value)}</b></div>`).join("")}</div>`).join("")}
+    </div>`;
+}

@@ -241,6 +241,10 @@
                 </div>
                 <span class="side-tag" id="opSide">-</span>
               </div>
+              <div class="xp" title="Experience to the next level">
+                <div class="xp-bar"><i id="opXp"></i></div>
+                <small id="opXpText"></small>
+              </div>
               <div class="op-hero">
                 <div class="op-tile"><small>Survival</small><b class="ok" id="opSr">-</b><span id="opRaids">0 raids</span></div>
                 <div class="op-tile"><small>K/D</small><b class="acc" id="opKd">-</b><span id="opKills">-</span></div>
@@ -300,6 +304,7 @@
               <div class="op-foot">
                 <span><span id="opLast">-</span> · <span id="opSaved">-</span></span>
                 <span class="warn-text" id="opInvalid" hidden>Profile looks incomplete</span>
+                <button class="ghost sm" id="opMore">Full stats</button>
               </div>
             </div>
           </div>
@@ -764,6 +769,14 @@
         <div class="setup-actions">
           <button class="primary" id="setupDone" disabled>Continue</button>
         </div>
+      </div>
+    </div>
+
+    <!-- player stats -->
+    <div class="overlay" id="statsOv" hidden>
+      <div class="stats-modal card">
+        <button class="ghost sm stats-x" id="statsClose">Close</button>
+        <div id="statsBody"></div>
       </div>
     </div>
 

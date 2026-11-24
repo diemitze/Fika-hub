@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 
 const ROUBLE_TPL: &str = "5449016a4bdc2d6f028b456f";
 
@@ -15,6 +16,9 @@ pub struct Profile {
     pub edition: String,
     pub level: i64,
     pub experience: i64,
+    /// XP where this level starts and where the next one does (0 when maxed or unknown)
+    pub xp_start: i64,
+    pub xp_next: i64,
     pub prestige: i64,
     pub raids: i64,
     pub survived: i64,
@@ -35,6 +39,64 @@ pub struct Profile {
     pub saved_ago: u64,
 }
 
+// Counters are a flat list of {Key:[...], Value}; whole keys are joined with "/" so
+// "Kills" doesn't swallow "KilledBoss" and friends.
+pub fn counters(pmc: Option<&Value>) -> HashMap<String, i64> {
+    let mut c = HashMap::new();
+    if let Some(items) = pmc
+        .and_then(|p| p.pointer("/Stats/Eft/OverallCounters/Items"))
+        .and_then(|v| v.as_array())
+    {
+        for it in items {
+            let key = it
+                .get("Key")
+                .and_then(|k| k.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("/"))
+                .unwrap_or_default();
+            c.insert(key, it.get("Value").and_then(|v| v.as_i64()).unwrap_or(0));
+        }
+    }
+    c
+}
+
+/// Running totals of the server's level table, read once from globals.json.
+static XP_TABLE: Mutex<Option<Vec<i64>>> = Mutex::new(None);
+
+fn level_bounds(profile: &Path, level: i64) -> (i64, i64) {
+    let mut g = XP_TABLE.lock().unwrap();
+    if g.is_none() {
+        // <root>/user/profiles/<id>.json, globals sit in <root>/SPT_Data/database
+        let table = profile
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(|root| root.join("SPT_Data").join("database").join("globals.json"))
+            .and_then(|f| std::fs::read(f).ok())
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v.pointer("/config/exp/level/exp_table").and_then(|t| t.as_array().cloned()))
+            .map(|t| {
+                let mut total = 0;
+                t.iter()
+                    .map(|e| {
+                        total += e.get("exp").and_then(|x| x.as_i64()).unwrap_or(0);
+                        total
+                    })
+                    .collect::<Vec<i64>>()
+            })
+            .unwrap_or_default();
+        if table.is_empty() {
+            return (0, 0);
+        }
+        *g = Some(table);
+    }
+    let t = g.as_ref().unwrap();
+    let i = (level - 1).max(0) as usize;
+    match (t.get(i), t.get(i + 1)) {
+        (Some(a), Some(b)) => (*a, *b),
+        _ => (0, 0),
+    }
+}
+
 pub fn read(path: &Path) -> Option<Profile> {
     let file = std::fs::File::open(path).ok()?;
     let root: Value = serde_json::from_reader(std::io::BufReader::new(file)).ok()?;
@@ -52,23 +114,7 @@ pub fn read(path: &Path) -> Option<Profile> {
         return None;
     }
 
-    // Counters are a flat list of {Key:[...], Value}; match whole keys so "Kills"
-    // doesn't swallow "KilledBoss" and friends.
-    let mut c: HashMap<String, i64> = HashMap::new();
-    if let Some(items) = pmc
-        .and_then(|p| p.pointer("/Stats/Eft/OverallCounters/Items"))
-        .and_then(|v| v.as_array())
-    {
-        for it in items {
-            let key = it
-                .get("Key")
-                .and_then(|k| k.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join("/"))
-                .unwrap_or_default();
-            let val = it.get("Value").and_then(|v| v.as_i64()).unwrap_or(0);
-            c.insert(key, val);
-        }
-    }
+    let c = counters(pmc);
     let ctr = |k: &str| *c.get(k).unwrap_or(&0);
 
     let roubles = pmc
@@ -97,6 +143,7 @@ pub fn read(path: &Path) -> Option<Profile> {
         .unwrap_or(0);
 
     let nickname = s(pinfo, "Nickname");
+    let bounds = level_bounds(path, n(pinfo, "Level"));
     Some(Profile {
         headless: username.to_lowercase().starts_with("headless_"),
         nickname: if nickname.is_empty() { username.clone() } else { nickname },
@@ -106,6 +153,8 @@ pub fn read(path: &Path) -> Option<Profile> {
         edition: s(Some(info), "edition"),
         level: n(pinfo, "Level"),
         experience: n(pinfo, "Experience"),
+        xp_start: bounds.0,
+        xp_next: bounds.1,
         prestige: n(pinfo, "PrestigeLevel"),
         raids: ctr("Sessions/Pmc"),
         survived: ctr("ExitStatus/Survived/Pmc"),

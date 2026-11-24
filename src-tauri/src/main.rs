@@ -10,6 +10,7 @@ mod install;
 mod logs;
 mod notify;
 mod procs;
+mod profile_detail;
 mod profiles;
 mod raids;
 mod schedule;
@@ -561,6 +562,19 @@ fn list_profiles(core: Ctx) -> Vec<profiles::Profile> {
 }
 
 #[tauri::command]
+async fn profile_stats(core: Ctx<'_>, id: String) -> Result<profile_detail::Detail, String> {
+    let s = core.settings.lock().unwrap().clone();
+    let host = host_dir(&s).ok_or("No server folder set.")?;
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Bad profile id.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || profile_detail::detail(&host, &id))
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "That profile couldn't be read.".into())
+}
+
+#[tauri::command]
 async fn lobby(core: Ctx<'_>, session: Option<String>) -> Result<fika::Lobby, String> {
     let s = core.settings.lock().unwrap().clone();
     let Some(host) = host_dir(&s) else {
@@ -815,6 +829,7 @@ fn main() {
             next_restart,
             discord_test,
             list_profiles,
+            profile_stats,
             lobby,
             mod_pages,
             open_mod_page,

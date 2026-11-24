@@ -167,7 +167,8 @@ pub async fn mod_pages(http: &reqwest::Client, base: &str) -> Option<Vec<ModPage
     let v = call(http, format!("{base}/launcher/v2/mod-pages"), "", None).await?;
     let str_of = |p: &Value, k: &str| p.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
     Some(
-        v.get("response")?
+        v.get("Response")
+            .or_else(|| v.get("response"))?
             .as_array()?
             .iter()
             .map(|p| ModPage {
