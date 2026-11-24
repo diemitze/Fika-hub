@@ -162,6 +162,7 @@ function goto(page) {
   }
   if (page === "history") loadHistory();
   if (page === "raids") loadRaids();
+  if (page === "modpages") loadModPages();
   saveUi();
 }
 $$(".rail-btn").forEach((b) => (b.onclick = () => goto(b.dataset.page)));
@@ -2773,3 +2774,48 @@ $("discordTest").onclick = async () => {
 };
 
 boot();
+
+// mod pages: the list the SPT launcher shows under its puzzle-piece button
+const mp = { items: [], err: "" };
+
+async function loadModPages() {
+  try {
+    mp.items = await invoke("mod_pages");
+    mp.err = "";
+  } catch (e) {
+    mp.items = [];
+    mp.err = String(e);
+  }
+  renderModPages();
+}
+
+function renderModPages() {
+  const q = $("mpSearch").value.trim().toLowerCase();
+  const rows = mp.items.filter((m) => !q || (m.name + " " + m.description).toLowerCase().includes(q));
+  $("mpCount").textContent = mp.items.length;
+  $("mpList").innerHTML = rows.length
+    ? rows
+        .map(
+          (m, i) => `<button class="mp-item" data-i="${i}">
+            <span class="mp-ico" style="background:hsl(${hueOf(m.name)} 55% 45%)">${esc(initials(m.name))}</span>
+            <span class="mp-txt"><b>${esc(m.name)}</b><em>${esc(m.description || m.homePage)}</em></span>
+          </button>`
+        )
+        .join("")
+    : `<div class="empty">${esc(mp.err || (mp.items.length ? "No match." : "No mod has registered a page."))}</div>`;
+  $$("#mpList .mp-item").forEach((b) => {
+    b.onclick = () => invoke("open_mod_page", { path: rows[b.dataset.i].homePage }).catch((e) => toast(String(e), true));
+  });
+}
+
+function initials(n) {
+  const w = n.replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean);
+  return ((w[0]?.[0] || "?") + (w[1]?.[0] || w[0]?.[1] || "")).toUpperCase();
+}
+function hueOf(n) {
+  let h = 0;
+  for (const c of n) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+$("mpSearch").oninput = renderModPages;
+$("mpRefresh").onclick = loadModPages;

@@ -578,6 +578,35 @@ async fn lobby(core: Ctx<'_>, session: Option<String>) -> Result<fika::Lobby, St
     Ok(fika::lobby(&core.http, port, &session).await)
 }
 
+fn server_base(s: &Settings) -> String {
+    format!("https://{}", game_addr(s, &s.launch_mode))
+}
+
+#[tauri::command]
+async fn mod_pages(core: Ctx<'_>) -> Result<Vec<fika::ModPage>, String> {
+    let s = core.settings.lock().unwrap().clone();
+    let port = host_dir(&s).as_deref().map(install::server_port).unwrap_or(6969);
+    if !remote_mode(&s.launch_mode) && !install::port_listening(port) {
+        return Err("The server isn't running.".into());
+    }
+    fika::mod_pages(&core.http, &server_base(&s))
+        .await
+        .ok_or_else(|| "The server didn't answer.".into())
+}
+
+#[tauri::command]
+fn open_mod_page(core: Ctx, path: String) -> Result<(), String> {
+    if !path.starts_with('/') || path.starts_with("//") || path.contains(char::is_whitespace) {
+        return Err("Not a mod page path.".into());
+    }
+    let s = core.settings.lock().unwrap().clone();
+    std::process::Command::new("explorer.exe")
+        .arg(format!("{}{path}", server_base(&s)))
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 fn logs_since(core: Ctx, stream: usize, after: i64) -> logs::Chunk {
     core.logs.since(stream.min(2), after)
@@ -787,6 +816,8 @@ fn main() {
             discord_test,
             list_profiles,
             lobby,
+            mod_pages,
+            open_mod_page,
             logs_since,
             clear_logs,
             save_text,

@@ -29,7 +29,7 @@ fn inflate(raw: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(raw).into_owned())
 }
 
-async fn call(http: &reqwest::Client, url: String, session: &str, body: Option<&str>) -> Option<Value> {
+pub async fn call(http: &reqwest::Client, url: String, session: &str, body: Option<&str>) -> Option<Value> {
     let req = match body {
         None => http.get(url),
         Some(json) => {
@@ -152,4 +152,29 @@ pub async fn lobby(http: &reqwest::Client, port: u16, session: &str) -> Lobby {
         players,
         raids,
     }
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModPage {
+    pub name: String,
+    pub home_page: String,
+    pub description: String,
+}
+
+/// The pages mods register with the server, same list the SPT launcher shows.
+pub async fn mod_pages(http: &reqwest::Client, base: &str) -> Option<Vec<ModPage>> {
+    let v = call(http, format!("{base}/launcher/v2/mod-pages"), "", None).await?;
+    let str_of = |p: &Value, k: &str| p.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    Some(
+        v.get("response")?
+            .as_array()?
+            .iter()
+            .map(|p| ModPage {
+                name: str_of(p, "name"),
+                home_page: str_of(p, "homePage"),
+                description: str_of(p, "description"),
+            })
+            .collect(),
+    )
 }

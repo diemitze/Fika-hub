@@ -72,6 +72,12 @@
           </svg>
           <span>Configs</span>
         </button>
+        <button class="rail-btn" data-page="modpages" title="Pages mods add to the server">
+          <svg viewBox="0 0 24 24">
+            <path d="M10 4a2 2 0 1 1 4 0v2h4v4h-2a2 2 0 1 0 0 4h2v4h-4v-2a2 2 0 1 0-4 0v2H6v-4H4a2 2 0 1 1 0-4h2V6h4z" />
+          </svg>
+          <span>Mod pages</span>
+        </button>
         <button class="rail-btn" data-page="history" title="History and backups">
           <svg viewBox="0 0 24 24">
             <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -376,6 +382,26 @@
               <button class="ghost sm" id="raidClear" title="Forget every recorded raid">Clear</button>
             </div>
             <div class="raid-rows" id="raidPast"></div>
+          </div>
+        </section>
+
+        <!-- ======================= MOD PAGES ======================= -->
+        <section class="page" id="page-modpages">
+          <div class="card">
+            <div class="card-head">
+              <h3>Mod pages</h3>
+              <span class="count" id="mpCount">0</span>
+              <div class="spacer"></div>
+              <div class="search">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M20 20l-4-4" />
+                </svg>
+                <input id="mpSearch" placeholder="Search mods" spellcheck="false" />
+              </div>
+              <button class="ghost sm" id="mpRefresh">Refresh</button>
+            </div>
+            <div class="mp-list" id="mpList"></div>
           </div>
         </section>
 
