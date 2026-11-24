@@ -2797,7 +2797,7 @@ function renderModPages() {
     ? rows
         .map(
           (m, i) => `<button class="mp-item" data-i="${i}">
-            <span class="mp-ico" style="background:hsl(${hueOf(m.name)} 55% 45%)">${esc(initials(m.name))}</span>
+            <span class="mp-ico" style="background:hsl(${modHue(m.name)} 55% 45%)">${esc(modInitials(m.name))}</span>
             <span class="mp-txt"><b>${esc(m.name)}</b><em>${esc(m.description || m.homePage)}</em></span>
           </button>`
         )
@@ -2808,11 +2808,11 @@ function renderModPages() {
   });
 }
 
-function initials(n) {
+function modInitials(n) {
   const w = n.replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean);
   return ((w[0]?.[0] || "?") + (w[1]?.[0] || w[0]?.[1] || "")).toUpperCase();
 }
-function hueOf(n) {
+function modHue(n) {
   let h = 0;
   for (const c of n) h = (h * 31 + c.charCodeAt(0)) % 360;
   return h;
